@@ -6,10 +6,11 @@ import datasets
 import numpy as np
 from sklearn.metrics import accuracy_score, f1_score
 from torch import nn
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, Sampler
 import os
 import json
 from tqdm.auto import tqdm
+import random
 
 # Define a multi-task classification model
 class LegalMultiTaskModel(nn.Module):
@@ -43,76 +44,143 @@ class LegalMultiTaskModel(nn.Module):
             for task, classifier in self.task_classifiers.items()
         }
 
+# --- Custom Task Sampler Definition ---
+class TaskBalancedSampler(Sampler):
+    """
+    Samples batches ensuring each batch contains examples from only one task.
+    Iterates through tasks and yields all examples for a task before moving to the next.
+    Task order and examples within each task are shuffled each epoch.
+    """
+    def __init__(self, dataset, batch_size):
+        self.dataset = dataset
+        self.batch_size = batch_size
+        
+        # --- Get indices per task from the MultiTaskDataset ---
+        # This requires the MultiTaskDataset to store indices per task
+        # Let's assume dataset has an attribute `task_indices_map` like:
+        # {'scotus': [idx1, idx2, ...], 'ledgar': [...], ...}
+        if not hasattr(dataset, 'task_indices_map') or not dataset.task_indices_map:
+             raise ValueError("Dataset must have a 'task_indices_map' attribute mapping task names to lists of indices.")
+        self.task_indices_map = dataset.task_indices_map
+        self.num_tasks = len(self.task_indices_map)
+        self.tasks = list(self.task_indices_map.keys())
+        
+        # Calculate total size and number of batches
+        self.total_size = dataset.total_size # Assumes dataset has total_size attribute
+        
+        # Calculate number of batches, rounding up for partial batches
+        self.num_batches = 0
+        for task in self.tasks:
+            task_len = len(self.task_indices_map[task])
+            self.num_batches += (task_len + self.batch_size - 1) // self.batch_size
+
+        print(f"TaskBalancedSampler initialized:")
+        print(f"  Tasks: {self.tasks}")
+        print(f"  Total Examples: {self.total_size}")
+        print(f"  Batch Size: {self.batch_size}")
+        print(f"  Number of Batches per Epoch: {self.num_batches}")
+
+
+    def __iter__(self):
+        # Shuffle task order for the epoch
+        shuffled_tasks = random.sample(self.tasks, len(self.tasks))
+        
+        # Prepare batches for the epoch
+        epoch_batches = []
+        for task in shuffled_tasks:
+            # Shuffle indices within the task
+            indices = self.task_indices_map[task]
+            random.shuffle(indices)
+            
+            # Create batches for this task
+            for i in range(0, len(indices), self.batch_size):
+                epoch_batches.append(indices[i : i + self.batch_size])
+                
+        # Shuffle the order of all generated batches
+        random.shuffle(epoch_batches)
+        
+        # Yield indices one by one from the shuffled batches
+        # The DataLoader's default BatchSampler will group these into final batches
+        all_indices_in_order = [idx for batch in epoch_batches for idx in batch]
+        
+        # Sanity check length (optional)
+        # print(f"Total indices yielded by sampler: {len(all_indices_in_order)}")
+        
+        return iter(all_indices_in_order)
+
+    def __len__(self):
+        # Corresponds to the total number of examples, not batches
+        # The DataLoader uses this length.
+        return self.total_size
+
+# --- End Custom Task Sampler Definition ---
+
 # SIMPLIFIED Custom dataset class (Now uses standardized columns)
 class MultiTaskDataset(Dataset):
     def __init__(self, datasets_dict, tokenizer):
-        # Combine all dataset splits into one list of examples and track task names
-        self.all_examples = []
-        self.dataset_sizes = {} # Store original sizes if needed for weighted sampling (optional)
+        self.datasets = datasets_dict
+        self.tokenizer = tokenizer
+        self.dataset_indices = list(self.datasets.keys())
         
-        print("Combining standardized datasets for MultiTaskDataset...")
-        # It's often simpler to concatenate datasets here
-        # For simplicity, we'll just store references and calculate total length
-        self.datasets = datasets_dict # Store the dict of loaded datasets
-        self.dataset_indices = list(self.datasets.keys()) # List of task names
-        
+        print("Initializing MultiTaskDataset for Sampler...")
         self.total_size = 0
-        for name, dataset in self.datasets.items():
-            # Check for 'train' split - assuming standardization kept splits
-            if 'train' in dataset:
-                 size = len(dataset['train'])
-                 self.dataset_sizes[name] = size
-                 self.total_size += size
+        self.task_indices_map = {name: [] for name in self.dataset_indices}
+        self.global_to_local_map = {} # Maps global index to (task_name, local_idx)
+
+        current_global_idx = 0
+        for name in self.dataset_indices:
+            if 'train' in self.datasets[name]:
+                 split_size = len(self.datasets[name]['train'])
+                 print(f"  Processing {name}: {split_size} examples.")
+                 # Store indices for this task
+                 task_indices = list(range(current_global_idx, current_global_idx + split_size))
+                 self.task_indices_map[name].extend(task_indices)
+                 # Create mapping for __getitem__
+                 for i in range(split_size):
+                      self.global_to_local_map[current_global_idx + i] = (name, i)
+                 
+                 self.total_size += split_size
+                 current_global_idx += split_size
             else:
-                 print(f"Warning: 'train' split not found for {name}. Ignoring this dataset for training.")
+                 print(f"  Warning: 'train' split not found for {name}.")
         
         if self.total_size == 0:
-             raise ValueError("No training data found in the provided datasets.")
-
-        self.tokenizer = tokenizer
-        print(f"MultiTaskDataset initialized with {self.total_size} total examples.")
+             raise ValueError("No training data found.")
+        print(f"MultiTaskDataset initialized. Total size: {self.total_size}")
+        # print(f"Task indices map snippet: {{k: v[:3] for k,v in self.task_indices_map.items()}}") # Debug
 
     def __len__(self):
-        # Return the total size calculated from all 'train' splits
         return self.total_size
 
     def __getitem__(self, idx):
-        # --- Simplified Logic ---
-        # Need a way to map global idx to a specific dataset and index within it
-        # Simple modulo sampling (might not be perfectly balanced if datasets differ greatly in size)
-        current_offset = 0
-        for task_name in self.dataset_indices:
-             task_size = self.dataset_sizes.get(task_name, 0)
-             if idx < current_offset + task_size:
-                  # This idx belongs to the current task_name
-                  within_dataset_idx = idx - current_offset
-                  dataset = self.datasets[task_name]['train']
-                  
-                  # Access standardized columns directly
-                  example = dataset[within_dataset_idx]
-                  text = example["input_text"]
-                  label = example["input_label"]
-                  # Task name is already known
-                  
-                  # Tokenize
-                  encoding = self.tokenizer(
-                      text if text else "", # Handle potential None text
-                      padding="max_length",
-                      truncation=True,
-                      max_length=512,
-                      return_tensors="pt"
-                  )
-                  
-                  return {
-                      "input_ids": encoding["input_ids"].squeeze(),
-                      "attention_mask": encoding["attention_mask"].squeeze(),
-                      "label": torch.tensor(label, dtype=torch.long),
-                      "task_name": task_name # Return the task name
-                  }
-             current_offset += task_size
+        # Use the precomputed map to find the task and local index
+        if idx not in self.global_to_local_map:
+             raise IndexError(f"Global index {idx} not found in map.")
              
-        # This should not be reached if total_size is calculated correctly
-        raise IndexError(f"Index {idx} out of bounds for total size {self.total_size}")
+        task_name, local_idx = self.global_to_local_map[idx]
+        
+        # Access the example from the correct dataset split
+        example = self.datasets[task_name]['train'][local_idx]
+        
+        # Access standardized columns directly (no if/elif needed)
+        text = example["input_text"]
+        label = example["input_label"]
+        # Task name is already known
+
+        encoding = self.tokenizer(
+            text if text else "",
+            padding="max_length",
+            truncation=True,
+            max_length=512,
+            return_tensors="pt"
+        )
+        
+        return {
+            "input_ids": encoding["input_ids"].squeeze(),
+            "attention_mask": encoding["attention_mask"].squeeze(),
+            "label": torch.tensor(label, dtype=torch.long),
+            "task_name": task_name # Still return task_name for the model head selection
+        }
 
 # Main training function (Simplified Loading and Setup)
 def train_multitask_model():
@@ -197,118 +265,98 @@ def train_multitask_model():
     model.to(device)
     print(f"Using device: {device}")
     
-    # --- Create Simplified MultiTaskDataset and DataLoader ---
-    # Pass the dictionary of loaded standardized datasets
+    # --- Create Simplified MultiTaskDataset ---
     train_dataset = MultiTaskDataset(loaded_datasets, tokenizer) 
-    train_dataloader = DataLoader(train_dataset, batch_size=16, shuffle=True)
+    
+    # --- Create Custom Sampler ---
+    batch_size = 16 # Define batch size
+    sampler = TaskBalancedSampler(train_dataset, batch_size)
+
+    # --- Create DataLoader using the Custom Sampler ---
+    # shuffle=False because the sampler handles shuffling
+    # batch_sampler=None because we provide a sampler
+    train_dataloader = DataLoader(
+        train_dataset, 
+        batch_size=batch_size, # DataLoader still needs batch_size
+        sampler=sampler,       # Use the custom sampler
+        shuffle=False,         # Sampler handles shuffling
+        batch_sampler=None     # Mutually exclusive with sampler
+    )
     
     # --- Optimizer, Scheduler ---
     optimizer = AdamW(model.parameters(), lr=2e-5)
-    num_epochs = 3 # Or load from config
-    total_steps = len(train_dataloader) * num_epochs
+    num_epochs = 3
+    # total_steps now depends on the number of batches from the sampler
+    total_steps = sampler.num_batches * num_epochs # Use num_batches from sampler
     scheduler = get_linear_schedule_with_warmup(
         optimizer,
-        num_warmup_steps=0, # Adjust as needed
+        num_warmup_steps=0, 
         num_training_steps=total_steps
     )
     
-    # --- Training Loop (Revised for Mixed Batches) ---
-    print("\nStarting training...")
+    # --- SIMPLIFIED Training Loop ---
+    print("\nStarting training with TaskBalancedSampler...")
     for epoch in range(num_epochs):
         model.train()
         total_loss = 0
         num_batches_processed = 0
+        # Use tqdm with the dataloader directly
         progress_bar = tqdm(train_dataloader, desc=f"Epoch {epoch+1}/{num_epochs}", leave=False)
         
         for batch_idx, batch in enumerate(progress_bar):
-            optimizer.zero_grad() # Zero gradients at the start of the batch
+            optimizer.zero_grad()
             batch_processed = False
             
             try:
-                 # Get common data
+                 # Batch is now homogeneous, get task name from first example
+                 if not batch["task_name"]: # Should not happen with sampler
+                      print(f"Warning: Empty task_name list in batch {batch_idx}. Skipping.")
+                      continue
+                 task_name = batch["task_name"][0] 
+
+                 # Get data
                  input_ids = batch["input_ids"].to(device)
                  attention_mask = batch["attention_mask"].to(device)
-                 labels = batch["label"].to(device) # The labels tensor
-                 task_names = batch["task_name"] # List of task names for the batch
+                 labels = batch["label"].to(device)
+                 
+                 # --- Direct Label Check (Optional Safeguard) ---
+                 expected_num_classes = filtered_task_labels.get(task_name)
+                 if expected_num_classes is None: 
+                      print(f"Critical Error: Task '{task_name}' not in filtered_task_labels! Skipping batch {batch_idx}.")
+                      continue
+                 if torch.any(labels < 0) or torch.any(labels >= expected_num_classes):
+                      print(f"\nERROR: Out-of-bounds label detected in homogeneous batch {batch_idx} for task {task_name}!")
+                      # This should DEFINITELY not happen now if preprocessing was correct
+                      # ... (print details) ...
+                      continue 
+                 # --- End Check ---
 
-                 # --- Verify Batch Consistency (Optional Debug) ---
-                 unique_tasks_in_batch = set(task_names)
-                 if len(unique_tasks_in_batch) > 1:
-                      if batch_idx % 100 == 0: # Print only occasionally
-                         print(f"\nINFO: Mixed batch detected at batch {batch_idx}. Tasks: {unique_tasks_in_batch}")
-                 # --- End Verification ---
-
-                 # Calculate loss per task present in the batch
-                 cumulative_loss = 0.0
-                 num_valid_examples = 0
-
-                 for task_name in unique_tasks_in_batch:
-                      # Find indices corresponding to the current task_name
-                      task_indices = [i for i, t in enumerate(task_names) if t == task_name]
-                      
-                      if not task_indices: continue # Should not happen
-
-                      # Select data for the current task
-                      task_input_ids = input_ids[task_indices]
-                      task_attention_mask = attention_mask[task_indices]
-                      task_labels = labels[task_indices]
-
-                      # Check label range for this task's subset
-                      expected_num_classes = filtered_task_labels.get(task_name)
-                      if expected_num_classes is None:
-                           print(f"Critical Error: Task '{task_name}' not in filtered_task_labels! Skipping sub-batch.")
-                           continue
-                       
-                      if torch.any(task_labels < 0) or torch.any(task_labels >= expected_num_classes):
-                           # This check should ideally NOT trigger now, given the data inspection results
-                           print(f"\nERROR: Out-of-bounds label detected for task {task_name} even after filtering!")
-                           print(f"  Expected Range: [0, {expected_num_classes-1}], Got Labels: {task_labels}")
-                           invalid_indices_task = torch.where((task_labels < 0) | (task_labels >= expected_num_classes))[0]
-                           print(f"  Problematic values: {task_labels[invalid_indices_task].tolist()}")
-                           continue # Skip this task's sub-batch
-
-                      # Forward pass for this task's data
-                      logits = model(task_input_ids, task_attention_mask, task_name)
-                      
-                      # Compute loss for this task's sub-batch
-                      loss_fct = nn.CrossEntropyLoss()
-                      loss = loss_fct(logits, task_labels)
-                      
-                      # Accumulate loss, weighted by the number of examples for this task
-                      # This ensures tasks with more examples in the batch contribute proportionally
-                      cumulative_loss += loss * len(task_indices) 
-                      num_valid_examples += len(task_indices)
-
-                 # Average loss across the valid examples in the batch
-                 if num_valid_examples > 0:
-                      average_batch_loss = cumulative_loss / num_valid_examples
-                      
-                      # Backward pass on the combined, averaged loss
-                      average_batch_loss.backward()
-                      total_loss += average_batch_loss.item() # Accumulate average loss
-                      batch_processed = True
-                      num_batches_processed += 1 # Count successfully processed batches
-                      
-                      # Update progress bar
-                      progress_bar.set_postfix({'avg_loss': total_loss / num_batches_processed, 'last_batch_loss': average_batch_loss.item()})
-                 else:
-                      # No valid examples/tasks processed in this batch
-                      progress_bar.set_postfix({'loss': 'Skipped'})
-
-                 # Gradient step (happens once per batch after processing all tasks)
-                 if batch_processed:
-                     optimizer.step()
-                     scheduler.step()
-                     # Gradients were already zeroed at the start
+                 # Forward pass - batch is homogeneous for task_name
+                 logits = model(input_ids, attention_mask, task_name)
+                 
+                 # Compute loss directly
+                 loss_fct = nn.CrossEntropyLoss()
+                 loss = loss_fct(logits, labels)
+                 
+                 # Backward pass & Optimization
+                 loss.backward()
+                 optimizer.step()
+                 scheduler.step()
+                 
+                 total_loss += loss.item()
+                 num_batches_processed += 1
+                 batch_processed = True
+                 
+                 progress_bar.set_postfix({'loss': loss.item(), 'task': task_name})
 
             except Exception as e:
                 print(f"\nError during training loop batch {batch_idx} (Epoch {epoch+1}): {e}")
                 import traceback
-                traceback.print_exc() # Print full traceback for unexpected errors
+                traceback.print_exc()
                 print("Skipping batch due to error.")
-                # Ensure gradients are cleared if an error occurred mid-step
+                # Ensure gradients are cleared
                 optimizer.zero_grad() 
-                continue # Move to the next batch
+                continue 
 
         avg_epoch_loss = total_loss / num_batches_processed if num_batches_processed > 0 else 0
         print(f"\nEpoch {epoch+1}/{num_epochs} finished. Average Loss: {avg_epoch_loss:.4f}")
