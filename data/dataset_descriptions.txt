@@ -1,0 +1,8 @@
+# Descriptions of Datasets in data/raw/
+
+## legal_text_classification.csv
+
+Description: The Legal Citation Text Classification dataset is provided in CSV format. The dataset has four columns, namely Case ID, Case Outcome, Case Title, and Case Text.
+The Case ID column contains a unique identifier for each legal case, the Case Outcome column indicates the outcome of the case, the Case Title column contains the title of the legal case, and the Case Text column contains the text of the legal case.
+
+Source: (kaggle)          
