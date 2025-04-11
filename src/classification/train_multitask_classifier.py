@@ -6,11 +6,12 @@ import datasets
 import numpy as np
 from sklearn.metrics import accuracy_score, f1_score
 from torch import nn
-from torch.utils.data import DataLoader, Dataset, Sampler
+from torch.utils.data import DataLoader, Dataset, Sampler, BatchSampler
 import os
 import json
 from tqdm.auto import tqdm
 import random
+from torch.cuda.amp import GradScaler, autocast
 
 # Define a multi-task classification model
 class LegalMultiTaskModel(nn.Module):
@@ -44,76 +45,92 @@ class LegalMultiTaskModel(nn.Module):
             for task, classifier in self.task_classifiers.items()
         }
 
-# --- Custom Task Sampler Definition ---
-class TaskBalancedSampler(Sampler):
+# --- Custom Task BATCH Sampler Definition ---
+class TaskBalancedBatchSampler(Sampler):
     """
-    Samples batches ensuring each batch contains examples from only one task.
-    Iterates through tasks and yields all examples for a task before moving to the next.
-    Task order and examples within each task are shuffled each epoch.
+    A Batch Sampler that ensures each batch contains examples from only one task.
+    Iterates through tasks, creates batches for each task, shuffles the order
+    of these batches, and yields them.
     """
     def __init__(self, dataset, batch_size):
+        # dataset should be an instance of our MultiTaskDataset
+        print("Initializing TaskBalancedBatchSampler...")
         self.dataset = dataset
         self.batch_size = batch_size
-        
-        # --- Get indices per task from the MultiTaskDataset ---
-        # This requires the MultiTaskDataset to store indices per task
-        # Let's assume dataset has an attribute `task_indices_map` like:
-        # {'scotus': [idx1, idx2, ...], 'ledgar': [...], ...}
+
         if not hasattr(dataset, 'task_indices_map') or not dataset.task_indices_map:
-             raise ValueError("Dataset must have a 'task_indices_map' attribute mapping task names to lists of indices.")
+             raise ValueError("Dataset must have a 'task_indices_map' attribute mapping task names to lists of global indices.")
         self.task_indices_map = dataset.task_indices_map
-        self.num_tasks = len(self.task_indices_map)
         self.tasks = list(self.task_indices_map.keys())
         
-        # Calculate total size and number of batches
-        self.total_size = dataset.total_size # Assumes dataset has total_size attribute
-        
-        # Calculate number of batches, rounding up for partial batches
+        # Calculate number of batches per task and total batches
+        self.num_batches_per_task = {}
         self.num_batches = 0
+        self.total_examples_in_sampler = 0 # Track examples covered by batches
+        
+        print("  Calculating batches per task:")
         for task in self.tasks:
             task_len = len(self.task_indices_map[task])
-            self.num_batches += (task_len + self.batch_size - 1) // self.batch_size
+            if task_len == 0:
+                print(f"    Task '{task}': 0 examples, skipping.")
+                self.num_batches_per_task[task] = 0
+                continue
+                
+            # Number of batches for this task, rounding up
+            n_batches = (task_len + self.batch_size - 1) // self.batch_size
+            self.num_batches_per_task[task] = n_batches
+            self.num_batches += n_batches
+            self.total_examples_in_sampler += task_len # Add actual examples used
+            print(f"    Task '{task}': {task_len} examples -> {n_batches} batches")
+            
+        # Use total examples covered by sampler for dataset __len__ reference if needed,
+        # but sampler len is number of batches.
+        self.total_size_from_dataset = dataset.total_size 
+        if self.total_examples_in_sampler != self.total_size_from_dataset:
+             print(f"  Warning: Sampler covers {self.total_examples_in_sampler} examples, dataset reports {self.total_size_from_dataset}.")
 
-        print(f"TaskBalancedSampler initialized:")
-        print(f"  Tasks: {self.tasks}")
-        print(f"  Total Examples: {self.total_size}")
+        print(f"  Total Tasks: {len(self.tasks)}")
         print(f"  Batch Size: {self.batch_size}")
-        print(f"  Number of Batches per Epoch: {self.num_batches}")
-
+        print(f"  Total Batches per Epoch: {self.num_batches}")
+        if self.num_batches == 0:
+             raise ValueError("No batches to yield. Check dataset sizes and batch size.")
 
     def __iter__(self):
-        # Shuffle task order for the epoch
-        shuffled_tasks = random.sample(self.tasks, len(self.tasks))
+        # This method yields lists of indices (batches)
         
-        # Prepare batches for the epoch
-        epoch_batches = []
-        for task in shuffled_tasks:
-            # Shuffle indices within the task
+        # Shuffle task order for the epoch? Optional, can just create all batches then shuffle.
+        # shuffled_tasks = random.sample(self.tasks, len(self.tasks))
+        
+        epoch_batches = [] # List to hold all batches (each batch is a list of indices)
+        
+        # Create batches for each task
+        for task in self.tasks:
             indices = self.task_indices_map[task]
+            if not indices: continue # Skip empty tasks
+            
+            # Shuffle indices within the task
             random.shuffle(indices)
             
             # Create batches for this task
             for i in range(0, len(indices), self.batch_size):
-                epoch_batches.append(indices[i : i + self.batch_size])
+                # Create a batch (list of indices)
+                batch_indices = indices[i : i + self.batch_size]
+                # Add the batch to our list of batches for the epoch
+                epoch_batches.append(batch_indices)
                 
-        # Shuffle the order of all generated batches
+        # Shuffle the order of all generated batches across tasks
         random.shuffle(epoch_batches)
         
-        # Yield indices one by one from the shuffled batches
-        # The DataLoader's default BatchSampler will group these into final batches
-        all_indices_in_order = [idx for batch in epoch_batches for idx in batch]
+        print(f"\nTaskBalancedBatchSampler: Yielding {len(epoch_batches)} batches for this epoch.") # Debug print once per epoch
         
-        # Sanity check length (optional)
-        # print(f"Total indices yielded by sampler: {len(all_indices_in_order)}")
-        
-        return iter(all_indices_in_order)
+        # Return an iterator over the list of batches
+        return iter(epoch_batches)
 
     def __len__(self):
-        # Corresponds to the total number of examples, not batches
-        # The DataLoader uses this length.
-        return self.total_size
+        # This should return the number of batches yielded per iteration (epoch)
+        return self.num_batches
 
-# --- End Custom Task Sampler Definition ---
+# --- End Custom Task BATCH Sampler Definition ---
 
 # SIMPLIFIED Custom dataset class (Now uses standardized columns)
 class MultiTaskDataset(Dataset):
@@ -182,22 +199,20 @@ class MultiTaskDataset(Dataset):
             "task_name": task_name # Still return task_name for the model head selection
         }
 
-# Main training function (Simplified Loading and Setup)
+# Main training function with AMP
 def train_multitask_model():
     # --- Configuration ---
     STANDARDIZED_DATA_DIR = 'data/standardized'
-    DATASET_NAMES = ["scotus", "ledgar", "unfair_tos", "casehold"] # List of datasets to load
+    DATASET_NAMES = ["scotus", "ledgar", "unfair_tos", "casehold"] 
     LABEL_COUNTS_FILE = os.path.join(STANDARDIZED_DATA_DIR, 'task_label_counts.json')
 
     # --- Load Standardized Datasets ---
     loaded_datasets = {}
     print("Loading standardized datasets...")
-    # Use a copy of the list to avoid modification issues if we skip items
-    datasets_to_load = DATASET_NAMES[:]
-    
+    datasets_to_load = DATASET_NAMES[:] 
     for name in datasets_to_load:
         path = os.path.join(STANDARDIZED_DATA_DIR, f"{name}_standardized_dataset")
-        print(f"Checking for dataset '{name}' at: {path}") # DEBUG
+        print(f"Checking for dataset '{name}' at: {path}") 
         if os.path.exists(path):
             try:
                 print(f"  Loading {name}...")
@@ -208,9 +223,7 @@ def train_multitask_model():
         else:
             print(f"  Standardized dataset not found at {path}. Skipping {name}.")
             
-    # --- CRITICAL DEBUG: Check what was actually loaded ---
     print(f"\nDEBUG: Finished loading loop. Keys in loaded_datasets: {list(loaded_datasets.keys())}")
-    # --- END DEBUG ---
 
     if not loaded_datasets:
         print("No standardized datasets found to train on!")
@@ -221,43 +234,26 @@ def train_multitask_model():
     try:
         with open(LABEL_COUNTS_FILE, 'r') as f:
             task_labels = json.load(f)
-        # Ensure keys are strings if needed (JSON loads them as strings)
         task_labels = {str(k): int(v) for k, v in task_labels.items()}
         print(f"Loaded Task labels: {task_labels}")
-        # Verify loaded datasets match task_labels
-        if set(loaded_datasets.keys()) != set(task_labels.keys()):
-             print("Warning: Mismatch between loaded datasets and label counts file!")
-             print(f"  Loaded datasets: {list(loaded_datasets.keys())}")
-             print(f"  Label counts keys: {list(task_labels.keys())}")
-             # Filter task_labels to only include loaded datasets
-             task_labels = {k: v for k, v in task_labels.items() if k in loaded_datasets}
-             print(f"  Using filtered task_labels: {task_labels}")
-
     except FileNotFoundError:
-        print(f"Error: Label counts file not found at {LABEL_COUNTS_FILE}. Cannot determine model output sizes.")
+        print(f"Error: Label counts file not found at {LABEL_COUNTS_FILE}.")
         return
-    except json.JSONDecodeError:
-        print(f"Error: Could not decode JSON from {LABEL_COUNTS_FILE}.")
+    except Exception as e: # Catch other potential errors like JSONDecodeError
+        print(f"Error loading or processing label counts file {LABEL_COUNTS_FILE}: {e}")
         return
 
     # --- Filter Task Labels based on successfully loaded datasets ---
     print("\nFiltering task labels based on loaded datasets...")
-    print(f"  Keys in loaded_datasets (before filtering): {list(loaded_datasets.keys())}") # DEBUG
-    print(f"  Keys in task_labels from JSON: {list(task_labels.keys())}")
-    
     filtered_task_labels = {k: v for k, v in task_labels.items() if k in loaded_datasets}
-    
-    print(f"  Resulting filtered_task_labels: {filtered_task_labels}") # DEBUG
-    
+    print(f"  Resulting filtered_task_labels: {filtered_task_labels}") 
     if not filtered_task_labels:
-         print("Error: No valid tasks remaining after filtering label counts based on loaded datasets.")
+         print("Error: No valid tasks remaining after filtering label counts.")
          return
-    # --- End Filtering ---
 
-    # --- Prepare tokenizer and model (Uses filtered_task_labels) ---
+    # --- Prepare tokenizer and model ---
     model_name = "nlpaueb/legal-bert-base-uncased"
     tokenizer = AutoTokenizer.from_pretrained(model_name)
-    # Pass the correctly filtered dictionary to the model
     model = LegalMultiTaskModel(model_name, filtered_task_labels)
     
     # --- Device Setup ---
@@ -265,97 +261,89 @@ def train_multitask_model():
     model.to(device)
     print(f"Using device: {device}")
     
-    # --- Create Simplified MultiTaskDataset ---
+    # --- Create Dataset, Sampler, DataLoader ---
     train_dataset = MultiTaskDataset(loaded_datasets, tokenizer) 
-    
-    # --- Create Custom Sampler ---
-    batch_size = 16 # Define batch size
-    sampler = TaskBalancedSampler(train_dataset, batch_size)
-
-    # --- Create DataLoader using the Custom Sampler ---
-    # shuffle=False because the sampler handles shuffling
-    # batch_sampler=None because we provide a sampler
+    batch_size = 16 # Start with 16, maybe increase later
+    batch_sampler = TaskBalancedBatchSampler(train_dataset, batch_size) 
+    print("Creating DataLoader with TaskBalancedBatchSampler...")
     train_dataloader = DataLoader(
         train_dataset, 
-        batch_size=batch_size, # DataLoader still needs batch_size
-        sampler=sampler,       # Use the custom sampler
-        shuffle=False,         # Sampler handles shuffling
-        batch_sampler=None     # Mutually exclusive with sampler
+        batch_sampler=batch_sampler, 
+        num_workers=0,           
+        pin_memory=True, # Set True for GPU       
     )
+    print("DataLoader created successfully.")
     
-    # --- Optimizer, Scheduler ---
+    # --- Optimizer, Scheduler --- 
     optimizer = AdamW(model.parameters(), lr=2e-5)
     num_epochs = 3
-    # total_steps now depends on the number of batches from the sampler
-    total_steps = sampler.num_batches * num_epochs # Use num_batches from sampler
+    total_steps = len(batch_sampler) * num_epochs 
+    print(f"Total training steps: {total_steps}") 
     scheduler = get_linear_schedule_with_warmup(
         optimizer,
         num_warmup_steps=0, 
         num_training_steps=total_steps
     )
-    
-    # --- SIMPLIFIED Training Loop ---
-    print("\nStarting training with TaskBalancedSampler...")
+
+    # --- Initialize GradScaler for AMP ---
+    scaler = GradScaler(enabled=(device.type == 'cuda')) # Enable scaler only if using CUDA
+
+    # --- Training Loop with AMP ---
+    print("\nStarting training with TaskBalancedBatchSampler and AMP...")
     for epoch in range(num_epochs):
         model.train()
         total_loss = 0
         num_batches_processed = 0
-        # Use tqdm with the dataloader directly
-        progress_bar = tqdm(train_dataloader, desc=f"Epoch {epoch+1}/{num_epochs}", leave=False)
+        progress_bar = tqdm(train_dataloader, desc=f"Epoch {epoch+1}/{num_epochs}", total=len(batch_sampler), leave=False) 
         
         for batch_idx, batch in enumerate(progress_bar):
-            optimizer.zero_grad()
-            batch_processed = False
+            optimizer.zero_grad(set_to_none=True) # Use set_to_none=True for potential efficiency gain
             
             try:
-                 # Batch is now homogeneous, get task name from first example
-                 if not batch["task_name"]: # Should not happen with sampler
-                      print(f"Warning: Empty task_name list in batch {batch_idx}. Skipping.")
-                      continue
+                 if not batch["task_name"]: continue
                  task_name = batch["task_name"][0] 
 
-                 # Get data
                  input_ids = batch["input_ids"].to(device)
                  attention_mask = batch["attention_mask"].to(device)
                  labels = batch["label"].to(device)
                  
-                 # --- Direct Label Check (Optional Safeguard) ---
+                 # --- Optional Safeguard Label Check ---
                  expected_num_classes = filtered_task_labels.get(task_name)
-                 if expected_num_classes is None: 
-                      print(f"Critical Error: Task '{task_name}' not in filtered_task_labels! Skipping batch {batch_idx}.")
-                      continue
+                 if expected_num_classes is None: continue # Should not happen
                  if torch.any(labels < 0) or torch.any(labels >= expected_num_classes):
-                      print(f"\nERROR: Out-of-bounds label detected in homogeneous batch {batch_idx} for task {task_name}!")
-                      # This should DEFINITELY not happen now if preprocessing was correct
-                      # ... (print details) ...
+                      print(f"\nERROR: OOB Label! Task:{task_name}, Range:[0,{expected_num_classes-1}], Got:{labels[torch.where((labels<0)|(labels>=expected_num_classes))[0]].tolist()}")
                       continue 
                  # --- End Check ---
 
-                 # Forward pass - batch is homogeneous for task_name
-                 logits = model(input_ids, attention_mask, task_name)
+                 # --- Autocast context manager ---
+                 # Enable only if using CUDA
+                 with autocast(enabled=(device.type == 'cuda')): 
+                     logits = model(input_ids, attention_mask, task_name)
+                     loss_fct = nn.CrossEntropyLoss()
+                     loss = loss_fct(logits, labels)
+                 # --- End Autocast ---
                  
-                 # Compute loss directly
-                 loss_fct = nn.CrossEntropyLoss()
-                 loss = loss_fct(logits, labels)
+                 # --- Scaled Backward ---
+                 scaler.scale(loss).backward()
                  
-                 # Backward pass & Optimization
-                 loss.backward()
-                 optimizer.step()
-                 scheduler.step()
+                 # --- Scaled Optimizer Step ---
+                 scaler.step(optimizer)
                  
-                 total_loss += loss.item()
+                 # --- Update Scaler ---
+                 scaler.update()
+                 
+                 # --- Scheduler Step ---
+                 scheduler.step() 
+                 
+                 total_loss += loss.item() 
                  num_batches_processed += 1
-                 batch_processed = True
-                 
                  progress_bar.set_postfix({'loss': loss.item(), 'task': task_name})
 
             except Exception as e:
-                print(f"\nError during training loop batch {batch_idx} (Epoch {epoch+1}): {e}")
+                print(f"\nError during training batch {batch_idx}: {e}")
                 import traceback
                 traceback.print_exc()
-                print("Skipping batch due to error.")
-                # Ensure gradients are cleared
-                optimizer.zero_grad() 
+                optimizer.zero_grad() # Clear potentially corrupted gradients
                 continue 
 
         avg_epoch_loss = total_loss / num_batches_processed if num_batches_processed > 0 else 0
@@ -363,19 +351,16 @@ def train_multitask_model():
         progress_bar.close()
 
     # --- Save Model ---
-    output_dir = "models/classification/multitask_legal_model_standardized" # New name
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-    
+    output_dir = "models/classification/multitask_legal_model_standardized" 
+    if not os.path.exists(output_dir): os.makedirs(output_dir)
     print(f"\nSaving model to {output_dir}...")
-    # Save model state dict, tokenizer, and task labels used for training
     torch.save(model.state_dict(), f"{output_dir}/model.pt")
     tokenizer.save_pretrained(output_dir)
-    with open(f"{output_dir}/task_labels.json", "w") as f: # Save the counts used
+    with open(f"{output_dir}/task_labels.json", "w") as f: 
         json.dump(filtered_task_labels, f, indent=4) 
     print("Model saved.")
 
-    # --- Evaluate on Test Sets (Simplified) ---
+    # --- Evaluate on Test Sets ---
     print("\nStarting evaluation...")
     model.eval()
     evaluation_results = {}
