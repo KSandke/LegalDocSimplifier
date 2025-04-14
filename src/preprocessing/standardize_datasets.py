@@ -6,8 +6,7 @@ from tqdm.auto import tqdm # For progress bars
 # --- Configuration ---
 RAW_DATA_DIR = 'data/processed'
 STANDARDIZED_DATA_DIR = 'data/standardized'
-DATASET_NAMES = ["scotus", "ledgar", "unfair_tos", "casehold"]
-#DATASET_NAMES = ["casehold"]
+DATASET_NAMES = ["scotus", "ledgar", "unfair_tos"]
 LABEL_COUNTS_FILE = os.path.join(STANDARDIZED_DATA_DIR, 'task_label_counts.json')
 
 # Create output directory if it doesn't exist
@@ -118,82 +117,6 @@ def standardize_unfair_tos(dataset):
     
     return standardized_dataset
 
-def standardize_casehold(dataset):
-    """Standardizes the CaseHOLD dataset (using the semi-processed version)."""
-    print("Standardizing casehold...")
-    
-    # Get expected num_classes from the original label feature info
-    try:
-        original_label_feature = dataset['train'].features['label']
-        num_classes = original_label_feature.num_classes # Should be 5
-        print(f"  Detected num_classes for casehold: {num_classes} (Valid Range [0, {num_classes-1}])")
-    except Exception as e:
-        print(f"  Error getting num_classes for casehold: {e}. Assuming 5.")
-        num_classes = 5
-
-    warning_printed = False
-
-    def transform(batch):
-        nonlocal warning_printed
-        processed_labels = []
-        texts_out = []
-        batch_task_names = []
-
-        # Iterate through examples in the batch
-        for i in range(len(batch["context"])): # Iterate using length of a known key
-            safe_label = batch["safe_label"][i] # Get the pre-processed safe_label
-            current_text = batch["context"][i]
-            
-            final_label = 0 # Default label
-
-            # Check if safe_label is valid (must be between 0 and num_classes-1)
-            # safe_label should have been -1 if original was missing/invalid
-            if safe_label == -1:
-                 # Original label was missing or invalid in the first preprocessing step
-                 final_label = 0 # Assign default
-                 if not warning_printed:
-                     print("  INFO: Mapping original missing/invalid casehold label (-1) to 0.")
-                     warning_printed = True # Suppress further messages for this type
-            elif 0 <= safe_label < num_classes:
-                 # The safe_label is within the expected range [0, 4]
-                 final_label = safe_label
-            else:
-                 # If safe_label is NOT -1 but STILL out of range [0, 4]
-                 # This indicates a severe problem in the *first* preprocessing step (preprocess_casehold.py)
-                 final_label = 0 # Assign default
-                 # Print a more prominent warning for this unexpected case
-                 print(f"  CRITICAL WARNING: safe_label for casehold has unexpected value '{safe_label}' at index {i} (not -1 and not in [0, {num_classes-1}]). This indicates an error in preprocess_casehold.py! Mapping to 0.")
-                 # We might only want this warning once too, depending on frequency
-                 # warning_printed = True 
-            
-            processed_labels.append(final_label)
-            texts_out.append(current_text)
-            batch_task_names.append("casehold")
-
-        # Debug print for the first batch
-        if not hasattr(transform, "debug_printed_casehold"): # Use a unique flag
-             print(f"  DEBUG (First Batch Casehold): Input safe_labels sample: {batch['safe_label'][:5]}")
-             print(f"  DEBUG (First Batch Casehold): Output processed_labels sample: {processed_labels[:5]}")
-             transform.debug_printed_casehold = True
-
-        return {
-            "input_text": texts_out,
-            "input_label": processed_labels,
-            "task_name": batch_task_names
-        }
-
-    # Store label count
-    task_label_counts['casehold'] = num_classes 
-
-    # Remove original columns including the intermediate safe_label
-    columns_to_remove = ["context", "endings", "label", "safe_label"]
-    # Filter columns to remove only those that actually exist in the dataset features
-    existing_columns_to_remove = [col for col in columns_to_remove if col in dataset['train'].column_names]
-    print(f"  Columns to remove: {existing_columns_to_remove}")
-    
-    standardized_dataset = dataset.map(transform, batched=True, remove_columns=existing_columns_to_remove)
-    return standardized_dataset
-
 # --- Main Preprocessing Logic ---
 
 # Define the desired final features for clarity and consistency
@@ -211,18 +134,14 @@ STANDARDIZATION_MAP = {
     "scotus": standardize_scotus,
     "ledgar": standardize_ledgar,
     "unfair_tos": standardize_unfair_tos,
-    "casehold": standardize_casehold,
 }
 
 if __name__ == "__main__":
     print("Starting dataset standardization...")
 
     for name in tqdm(DATASET_NAMES, desc="Processing Datasets"):
-        # Determine input path (use semi-processed for casehold)
-        if name == "casehold":
-            input_path = os.path.join(RAW_DATA_DIR, f"{name}_processed_dataset")
-        else:
-            input_path = os.path.join(RAW_DATA_DIR, f"{name}_dataset")
+        # Determine input path (no special case needed anymore)
+        input_path = os.path.join(RAW_DATA_DIR, f"{name}_dataset")
             
         output_path = os.path.join(STANDARDIZED_DATA_DIR, f"{name}_standardized_dataset")
 

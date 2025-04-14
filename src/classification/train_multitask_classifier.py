@@ -199,11 +199,12 @@ class MultiTaskDataset(Dataset):
             "task_name": task_name # Still return task_name for the model head selection
         }
 
-# Main training function with AMP
+# Main training function (Simplified Loading and Setup)
 def train_multitask_model():
     # --- Configuration ---
     STANDARDIZED_DATA_DIR = 'data/standardized'
-    DATASET_NAMES = ["scotus", "ledgar", "unfair_tos", "casehold"] 
+    # Remove casehold from the list of datasets to load
+    DATASET_NAMES = ["scotus", "ledgar", "unfair_tos"] 
     LABEL_COUNTS_FILE = os.path.join(STANDARDIZED_DATA_DIR, 'task_label_counts.json')
 
     # --- Load Standardized Datasets ---
@@ -229,26 +230,28 @@ def train_multitask_model():
         print("No standardized datasets found to train on!")
         return
         
-    # --- Load Task Label Counts ---
+    # --- Load Task Label Counts --- (Loads from JSON, will only use keys matching loaded_datasets)
     print(f"Loading task label counts from {LABEL_COUNTS_FILE}...")
     try:
         with open(LABEL_COUNTS_FILE, 'r') as f:
             task_labels = json.load(f)
         task_labels = {str(k): int(v) for k, v in task_labels.items()}
-        print(f"Loaded Task labels: {task_labels}")
+        print(f"Loaded Task labels (raw): {task_labels}")
     except FileNotFoundError:
-        print(f"Error: Label counts file not found at {LABEL_COUNTS_FILE}.")
+        print(f"Error: Label counts file not found at {LABEL_COUNTS_FILE}. Cannot determine model output sizes.")
         return
-    except Exception as e: # Catch other potential errors like JSONDecodeError
+    except Exception as e:
         print(f"Error loading or processing label counts file {LABEL_COUNTS_FILE}: {e}")
         return
 
-    # --- Filter Task Labels based on successfully loaded datasets ---
+    # --- Filter Task Labels based on successfully loaded datasets --- 
+    # (This automatically handles casehold not being in loaded_datasets)
     print("\nFiltering task labels based on loaded datasets...")
     filtered_task_labels = {k: v for k, v in task_labels.items() if k in loaded_datasets}
     print(f"  Resulting filtered_task_labels: {filtered_task_labels}") 
-    if not filtered_task_labels:
-         print("Error: No valid tasks remaining after filtering label counts.")
+    if not filtered_task_labels or len(filtered_task_labels) != len(loaded_datasets):
+         print("Error: Mismatch between loaded datasets and label counts after filtering.")
+         print(f"Loaded: {list(loaded_datasets.keys())}, Filtered Counts: {list(filtered_task_labels.keys())}")
          return
 
     # --- Prepare tokenizer and model ---

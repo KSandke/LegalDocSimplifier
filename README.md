@@ -35,20 +35,18 @@ The primary classification model is trained using a multi-task approach on sever
 - SCOTUS (`scotus`)
 - LEDGAR (`ledgar`)
 - UNFAIR-ToS (`unfair_tos`)
-- CaseHOLD (`casehold`)
 
 ### Workflow
 
 1.  **Initial Loading:** Raw datasets are loaded using `data/raw/lex_glue_loader.py` and saved to `data/processed/`.
-2.  **Preprocessing (`casehold`):** The `casehold` dataset requires initial preprocessing to handle its specific structure. This is done using `src/preprocessing/preprocess_casehold.py`, saving an intermediate version to `data/processed/casehold_processed_dataset`.
-3.  **Standardization:** All datasets are then converted to a uniform format (`input_text`, `input_label`, `task_name`) using `src/preprocessing/standardize_datasets.py`. This script saves the final training-ready datasets to `data/standardized/` and also creates `data/standardized/task_label_counts.json`.
-4.  **Training:** The multi-task model is trained using `src/classification/train_multitask_classifier.py`. This script:
-    - Loads the standardized datasets from `data/standardized/`.
+2.  **Standardization:** All relevant datasets (`scotus`, `ledgar`, `unfair_tos`) are converted to a uniform format (`input_text`, `input_label`, `task_name`) using `src/preprocessing/standardize_datasets.py`. This script saves the final training-ready datasets to `data/standardized/` and also creates `data/standardized/task_label_counts.json`.
+3.  **Training:** The multi-task model is trained using `src/classification/train_multitask_classifier.py`. This script:
+    - Loads the standardized datasets (`scotus`, `ledgar`, `unfair_tos`) from `data/standardized/`.
     - Loads the label counts from `data/standardized/task_label_counts.json`.
     - Uses the `LegalMultiTaskModel` architecture (shared Legal-BERT encoder, separate heads per task).
     - Employs the `TaskBalancedBatchSampler` to ensure each training batch contains examples from only one task.
     - Utilizes Automatic Mixed Precision (AMP) for faster training on compatible GPUs.
-    - Saves the final trained model to `models/classification/multitask_legal_model_standardized/`.
+    - Saves the final trained model to `models/classification/multitask_legal_model_standardized/` (consider renaming if only 3 tasks now).
 
 ### Optimal Settings (for NVIDIA RTX 3080 10GB)
 
@@ -66,10 +64,10 @@ The primary classification model is trained using a multi-task approach on sever
 # 1. Run initial loader (if needed)
 # python data/raw/lex_glue_loader.py
 
-# 2. Run casehold preprocessing
-python src/preprocessing/preprocess_casehold.py
+# 2. Run casehold preprocessing (No longer needed for this training script)
+# python src/preprocessing/preprocess_casehold.py
 
-# 3. Run standardization for all datasets
+# 3. Run standardization for relevant datasets
 python src/preprocessing/standardize_datasets.py
 
 # 4. Run multi-task training
