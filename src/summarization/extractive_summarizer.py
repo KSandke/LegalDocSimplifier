@@ -1,17 +1,38 @@
 import nltk
 import networkx as nx
+import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-from datasets import load_from_disk
+import datasets
+import traceback
+import yaml
 import os
 import re
+
+# --- Configuration Loading ---
+def load_config(config_path='config/summarization.yaml'):
+    """Loads configuration from a YAML file."""
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(f"Configuration file not found at {config_path}")
+    with open(config_path, 'r') as f:
+        config = yaml.safe_load(f)
+    return config
 
 # Ensure necessary NLTK data is downloaded (run once)
 try:
     nltk.data.find('tokenizers/punkt')
-except nltk.downloader.DownloadError:
-    print("Downloading NLTK sentence tokenizer (punkt)...")
-    nltk.download('punkt')
+    # We also need to ensure punkt_tab is available if punkt is
+    nltk.data.find('tokenizers/punkt_tab') 
+except LookupError: 
+    print("Downloading NLTK sentence tokenizer data (punkt and punkt_tab)...")
+    # Download both resources
+    try:
+        nltk.download('punkt', quiet=True) 
+        nltk.download('punkt_tab', quiet=True) 
+        print("NLTK data downloaded.")
+    except Exception as e_download:
+        print(f"Error downloading NLTK data: {e_download}")
+        print("Please try downloading manually: python -m nltk.downloader punkt punkt_tab")
 
 # --- Configuration ---
 # Ideally, load from config/summarization.yaml, but hardcode for now
@@ -24,19 +45,18 @@ def clean_text(text):
     # Add more cleaning steps if needed (e.g., removing specific headers/footers)
     return text
 
-def get_sentences(text):
-    """Split text into sentences using NLTK."""
-    if not isinstance(text, str):
-         print(f"Warning: Input to get_sentences is not a string (type: {type(text)}). Returning empty list.")
-         return []
+def get_sentences(text, min_length=5):
+    """Tokenize text into sentences using NLTK and filter short ones."""
     try:
-        # Use NLTK's recommended sentence tokenizer
         sentences = nltk.sent_tokenize(text)
-        # Filter out very short sentences (likely noise or headings)
-        sentences = [s.strip() for s in sentences if len(s.split()) > 5] 
+        # Filter out very short sentences
+        sentences = [s for s in sentences if len(s.split()) > min_length]
+        if not sentences:
+            print("Warning: No sentences found after filtering. Check min_length or input text.")
         return sentences
     except Exception as e:
         print(f"Error during sentence tokenization: {e}")
+        traceback.print_exc()
         return []
 
 def build_similarity_matrix(sentences):
@@ -70,114 +90,121 @@ def build_similarity_matrix(sentences):
         print(f"Unexpected error during similarity calculation: {e}")
         return None, None
 
-
-def textrank_summarize(text, num_sentences=5):
-    """
-    Generates an extractive summary using the TextRank algorithm.
-
-    Args:
-        text (str): The input document text.
-        num_sentences (int): The desired number of sentences in the summary.
-
-    Returns:
-        str: The generated summary, or an empty string if summarization fails.
-    """
-    print(f"\nStarting TextRank summarization for text (first 100 chars): {text[:100]}...")
-    
-    # 1. Clean and Sentence Tokenize
+def textrank_summarize(text, num_sentences=5, min_sentence_length=5):
+    """Generates an extractive summary using TextRank."""
+    # 1. Clean and get sentences
     cleaned_text = clean_text(text)
-    sentences = get_sentences(cleaned_text)
-    
-    if not sentences or len(sentences) <= num_sentences:
-        print("  Not enough sentences to summarize meaningfully.")
-        return " ".join(sentences) # Return original text if too short
-
-    print(f"  Found {len(sentences)} sentences.")
+    sentences = get_sentences(cleaned_text, min_length=min_sentence_length) # Pass min_length
+    if not sentences or len(sentences) < num_sentences:
+        print("Warning: Not enough sentences to generate the requested summary length.")
+        # Return first few sentences or original text if too short
+        return ' '.join(sentences) if sentences else cleaned_text[:500] + "... (trimmed)"
 
     # 2. Build Similarity Matrix
-    similarity_matrix, _ = build_similarity_matrix(sentences)
-    
-    if similarity_matrix is None:
-        print("  Failed to build similarity matrix. Cannot summarize.")
-        return ""
+    similarity_matrix, _ = build_similarity_matrix(sentences) # Unpack the tuple
+    if similarity_matrix is None or similarity_matrix.shape[0] == 0:
+         print("Warning: Could not build similarity matrix.")
+         return ' '.join(sentences[:num_sentences]) # Fallback
 
-    # 3. Create Graph and Run PageRank
+    # 3. Apply TextRank (PageRank)
     try:
-        # Create a graph representation of the sentences
-        # Nodes are sentences, edges are weighted by similarity
-        sentence_graph = nx.from_numpy_array(similarity_matrix)
-        
-        # Apply the PageRank algorithm (TextRank is based on PageRank)
-        # Scores represent the importance/centrality of each sentence
-        scores = nx.pagerank(sentence_graph, weight='weight') # Use edge weights (similarity)
-        
-    except Exception as e:
-        print(f"Error during graph creation or PageRank: {e}")
-        return ""
+        nx_graph = nx.from_numpy_array(similarity_matrix)
+        # Check if graph is empty or has no edges before calculating pagerank
+        if nx_graph.number_of_nodes() == 0 or nx_graph.number_of_edges() == 0:
+            print("Warning: Similarity graph has no nodes or edges. Returning top sentences sequentially.")
+            ranked_sentences = list(enumerate(sentences))
+            # Sort by original index to keep order
+            ranked_sentences.sort(key=lambda x: x[0])
+        else:
+            scores = nx.pagerank(nx_graph, weight='weight')
+            # Sort sentences by score
+            ranked_sentences = sorted(((scores[i], s, i) for i, s in enumerate(sentences)), reverse=True, key=lambda x: x[0])
 
-    # 4. Rank Sentences and Extract Top N
-    # Sort sentences by their TextRank score in descending order
-    ranked_sentences = sorted(
-        ((scores[i], s, i) for i, s in enumerate(sentences)), 
-        reverse=True,
-        key=lambda x: x[0] # Sort by score (index 0)
-    )
-    
-    # Select the top N sentences based on rank
-    top_sentence_indices = sorted([item[2] for item in ranked_sentences[:num_sentences]])
-    
-    # 5. Combine into Summary (preserving original order)
-    summary_sentences = [sentences[i] for i in top_sentence_indices]
-    summary = " ".join(summary_sentences)
-    
-    print(f"  Generated summary with {len(summary_sentences)} sentences.")
+    except Exception as e:
+        print(f"Error during PageRank calculation: {e}")
+        traceback.print_exc()
+        # Fallback: return the first few sentences
+        ranked_sentences = list(enumerate(sentences))
+        ranked_sentences.sort(key=lambda x: x[0]) # Sort by index
+
+    # 4. Select top N sentences
+    selected_sentences = []
+    if len(ranked_sentences) > 0:
+        num_to_select = min(num_sentences, len(ranked_sentences))
+        # Get the top sentences based on score (first element of tuple if pagerank worked)
+        # or just take the first few if fallback occurred (index is first element)
+        top_sentences_with_indices = sorted(ranked_sentences[:num_to_select], key=lambda x: x[2] if len(x) == 3 else x[0])
+        selected_sentences = [s[1] for s in top_sentences_with_indices]
+
+    # 5. Combine into summary
+    summary = ' '.join(selected_sentences)
     return summary
 
-# --- Example Usage ---
+# --- Main Execution --- (Example Usage)
 if __name__ == "__main__":
-    print("--- Extractive Summarizer Example ---")
-    
-    # Load the standardized SCOTUS dataset
-    dataset_name = DEFAULT_DATASET_NAME
-    dataset_path = os.path.join(STANDARDIZED_DATA_DIR, f"{dataset_name}_standardized_dataset")
-    
-    if not os.path.exists(dataset_path):
-        print(f"Error: Standardized dataset not found at {dataset_path}")
-        exit()
-        
     try:
-        print(f"Loading {dataset_name} dataset...")
-        scotus_dataset = load_from_disk(dataset_path)
-        # Use the 'test' split for demonstration
-        if 'test' in scotus_dataset:
-             test_data = scotus_dataset['test']
-             print(f"Loaded {len(test_data)} examples from test split.")
-        elif 'train' in scotus_dataset:
-             print("Warning: 'test' split not found, using 'train' split instead.")
-             test_data = scotus_dataset['train']
-        else:
-             print("Error: No 'test' or 'train' split found in the dataset.")
-             exit()
-             
-        # Summarize the first few examples
-        num_examples_to_summarize = 3
-        desired_summary_length = 5 # Number of sentences
+        # Load configuration
+        config = load_config() # Load from default path
+        extractive_config = config.get('extractive', {})
+        if not extractive_config:
+            print("Warning: 'extractive' section not found in config/summarization.yaml. Using defaults.")
 
-        for i in range(min(num_examples_to_summarize, len(test_data))):
-            print(f"\n--- Summarizing Example {i+1} ---")
-            original_text = test_data[i]['input_text']
-            original_label = test_data[i]['input_label'] # Just for context
-            
-            print(f"Original Text Length: {len(original_text)} chars")
-            print(f"Original Label: {original_label}")
-            
-            summary = textrank_summarize(original_text, num_sentences=desired_summary_length)
-            
-            print("\nGenerated Summary:")
+        # Get parameters from config, with fallbacks
+        dataset_name = extractive_config.get('dataset_name', 'scotus_processor')
+        dataset_split = extractive_config.get('dataset_split', 'test')
+        num_summary_sentences = extractive_config.get('num_summary_sentences', 5)
+        min_sent_len = extractive_config.get('min_sentence_length', 5)
+
+        print(f"Loading dataset: {dataset_name}, split: {dataset_split}")
+        # Load the specified dataset split
+        # Adjust path/loading based on how standardized datasets are saved
+        # Assuming they are saved in a way `datasets.load_from_disk` can handle
+        # or loaded via Hugging Face datasets library directly if applicable.
+        # THIS MIGHT NEED ADJUSTMENT BASED ON YOUR ACTUAL DATA SAVING STRUCTURE
+        try:
+            # Try loading from disk first (common pattern in this project)
+            processed_data_path = os.path.join('data', 'processed', dataset_name)
+            if os.path.exists(processed_data_path):
+                 dataset = datasets.load_from_disk(processed_data_path)[dataset_split]
+                 print(f"Loaded {len(dataset)} examples from disk.")
+            else:
+                 # Fallback: attempt to load directly if it's a HF dataset name
+                 print(f"Dataset not found at {processed_data_path}. Attempting to load '{dataset_name}' directly.")
+                 dataset = datasets.load_dataset(dataset_name, split=dataset_split)
+                 print(f"Loaded {len(dataset)} examples directly.")
+        except Exception as load_e:
+            print(f"Error loading dataset '{dataset_name}': {load_e}")
+            print("Please ensure the dataset name in config/summarization.yaml is correct and the data exists.")
+            exit(1)
+
+
+        # Determine the text column (assuming 'text' based on previous scripts)
+        text_column = 'text' # Adjust if your standardized dataset uses a different column name
+        if text_column not in dataset.column_names:
+            print(f"Error: Text column '{text_column}' not found in dataset. Available columns: {dataset.column_names}")
+            # Attempt to guess a text-like column if 'text' isn't present
+            potential_cols = [col for col in dataset.column_names if 'text' in col or 'content' in col or 'opinion' in col]
+            if potential_cols:
+                text_column = potential_cols[0]
+                print(f"Using column '{text_column}' as text input.")
+            else:
+                print("Cannot determine text column. Exiting.")
+                exit(1)
+
+
+        print(f"\nGenerating summaries for the first 3 examples (max {num_summary_sentences} sentences each, min sentence length {min_sent_len})...")
+
+        # Summarize a few examples
+        for i in range(min(3, len(dataset))):
+            example_text = dataset[i][text_column]
+            print(f"\n--- Example {i+1} ---")
+            # print(f"Original Text (first 500 chars): {example_text[:500]}...")
+            summary = textrank_summarize(example_text, num_sentences=num_summary_sentences, min_sentence_length=min_sent_len)
+            print(f"\nGenerated Summary:")
             print(summary)
-            print("-" * 30)
 
+    except FileNotFoundError as e:
+        print(f"Error: {e}")
     except Exception as e:
-        print(f"An error occurred during example usage: {e}")
-        import traceback
+        print(f"An unexpected error occurred in the main execution block: {e}")
         traceback.print_exc() 

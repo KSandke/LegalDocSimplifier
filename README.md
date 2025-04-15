@@ -31,7 +31,7 @@ A project to classify, summarize, and simplify legal documents using NLP.
 
 - `config/`: YAML configuration files for different components.
     - `classification.yaml`: Settings for classification models.
-    - `summarization.yaml`: Settings for summarization models (placeholder).
+    - `summarization.yaml`: Settings for summarization models (extractive & abstractive).
     - `simplification.yaml`: Settings for simplification (placeholder).
 - `data/`: Directory for datasets.
     - `raw/`: Original, unprocessed data (put downloaded datasets here).
@@ -53,6 +53,8 @@ A project to classify, summarize, and simplify legal documents using NLP.
         - `standardize_datasets.py`: Standardizes datasets for multi-task training.
     - `summarization/`: Document summarization logic.
         - `extractive_summarizer.py`: Implements TextRank extractive summarization.
+        - `abstractive_summarizer.py`: Runs inference using a pre-trained/fine-tuned abstractive model.
+        - `finetune_abstractive.py`: Fine-tunes an abstractive summarization model.
     - `simplification/`: Text simplification logic (placeholder).
     - `evaluation/`: Model evaluation scripts (placeholder).
     - `utils/`: Shared utility functions.
@@ -84,7 +86,7 @@ Uses datasets standardized by `src/preprocessing/standardize_datasets.py`:
     - Uses the `LegalMultiTaskModel` architecture (shared Legal-BERT encoder, separate heads per task).
     - Employs the `TaskBalancedBatchSampler` to ensure each training batch contains examples from only one task.
     - Utilizes Automatic Mixed Precision (AMP) for faster training on compatible GPUs.
-    - Saves the final trained model to `models/classification/multitask_legal_model_standardized/` (consider renaming if only 3 tasks now).
+    - Saves the final trained model to `models/classification/multitask_legal_model_standardized/`.
 
 ### Training Configuration (`config/classification.yaml`)
 
@@ -121,17 +123,44 @@ See the script's docstring for details on importing the `predict` function.
 
 ## Extractive Summarization
 
-Currently implements the TextRank algorithm for extractive summarization.
+Implements the TextRank algorithm for extractive summarization. Configuration is managed via the `extractive` section in `config/summarization.yaml`.
 
 ### Running
 
-The script `src/summarization/extractive_summarizer.py` can be run directly to demonstrate summarization on examples from the standardized SCOTUS dataset:
+The script `src/summarization/extractive_summarizer.py` can be run directly to demonstrate summarization on examples from the configured dataset (default: standardized SCOTUS dataset):
 
 ```bash
 python src/summarization/extractive_summarizer.py
 ```
 
-*(Further development needed to integrate with other components and add configuration via `config/summarization.yaml`)*
+## Abstractive Summarization
+
+Provides functionality to fine-tune and run inference with sequence-to-sequence models for abstractive summarization. Configuration is managed via the `abstractive` section in `config/summarization.yaml`.
+
+### Fine-tuning
+
+The script `src/summarization/finetune_abstractive.py` fine-tunes a specified base model (e.g., `google-t5/t5-small`) on a summarization dataset (e.g., `ChicagoHAI/CaseSumm`).
+
+1.  **Configure:** Adjust parameters in `config/summarization.yaml` under the `abstractive` -> `training` section (e.g., `output_dir`, `num_train_epochs`, `per_device_train_batch_size`, `learning_rate`, etc.).
+2.  **Run Training:** Execute the script. This will download the base model and dataset if not cached, preprocess the data, and run the fine-tuning loop using the `transformers` `Seq2SeqTrainer`, saving checkpoints and the final model to the specified `output_dir`.
+    ```bash
+    # Ensure dependencies are installed (incl. accelerate)
+    pip install -r requirements.txt
+    # Run the fine-tuning process
+    python src/summarization/finetune_abstractive.py
+    ```
+    *Note: Fine-tuning can be computationally intensive and time-consuming, especially on large datasets. A GPU is highly recommended.* 
+
+### Inference
+
+The script `src/summarization/abstractive_summarizer.py` loads a pre-trained or fine-tuned model and generates summaries for a given dataset split.
+
+1.  **Configure:** Set the `base_model` in `config/summarization.yaml` (under `abstractive`). To use a fine-tuned model, you can either set `base_model` to the path where the fine-tuned model was saved (e.g., `models/summarization/t5_small_casesumm_finetuned`) or potentially add a `path_to_finetuned_model` field in the config and modify the script to prioritize loading from there.
+2.  **Run Inference:** Execute the script. It will load the specified model and dataset, generate summaries, calculate ROUGE scores against reference summaries (if available), and print examples.
+    ```bash
+    # Run inference using the configured model and dataset
+    python src/summarization/abstractive_summarizer.py
+    ```
 
 ## Simplification
 
