@@ -401,13 +401,33 @@ def train_multitask_model(config):
     # --- Save Model --- (Uses config vars)
     output_dir = OUTPUT_DIR_TEMPLATE.format(model_name=MODEL_SAVE_NAME)
     if not os.path.exists(output_dir): os.makedirs(output_dir)
-    print(f"\nSaving model to {output_dir}...")
-    torch.save(model.state_dict(), f"{output_dir}/model.pt")
+    print(f"\nSaving model components to {output_dir}...")
+
+    # 1. Save Model State Dictionary (Weights)
+    torch.save(model.state_dict(), os.path.join(output_dir, "model.pt")) # Keep model.pt for custom loading
+    print("  Model state_dict saved.")
+
+    # 2. Save Tokenizer Configuration/Vocabulary
     tokenizer.save_pretrained(output_dir)
-    # Save the *filtered* labels used for this run
-    with open(f"{output_dir}/task_labels.json", "w") as f: 
+    print("  Tokenizer saved.")
+    
+    # 3. Save the Base Model's Configuration (config.json)
+    # Access the underlying Hugging Face encoder model to save its config
+    try:
+        model.encoder.config.save_pretrained(output_dir)
+        print("  Base model config.json saved.")
+    except AttributeError:
+        print("  Warning: Could not find model.encoder.config to save config.json.")
+        # If your model structure is different, adjust how you access the base config
+        # For example, if the base model is directly self.bert or self.roberta:
+        # model.bert.config.save_pretrained(output_dir) 
+
+    # 4. Save Custom Task Labels 
+    with open(os.path.join(output_dir, "task_labels.json"), "w") as f: # Use os.path.join
         json.dump(filtered_task_labels, f, indent=4) 
-    print("Model saved.")
+    print("  Task labels saved.")
+    
+    print("Model saving complete.")
 
     # --- Evaluate on Test Sets --- (Uses config var)
     print("\nStarting evaluation...")

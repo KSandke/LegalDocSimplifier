@@ -13,6 +13,10 @@ datasets==3.5.0
 nltk==3.9.1
 spacy==3.8.5
 
+# For TextRank / sentence similarity
+networkx>=2.6 # For graph representation
+scikit-learn>=1.0 # Already included, but ensure version for TF-IDF/cosine
+
 # Deep Learning
 torch==2.6.0+cu118
 torchaudio==2.6.0+cu118
