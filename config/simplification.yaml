@@ -1,0 +1,17 @@
+# Configuration for Simplification Tasks
+
+# paths:
+#   input_data: ...
+#   term_dictionary: data/dictionary/legal_terms.json
+#   output_models: models/simplification_ner/{model_name}
+
+# model:
+#   ner_model_name: simplification_ner_v1
+#   base_model: ... # NER base model
+
+# training:
+#   ...
+
+# simplification_params:
+#   level: medium
+#   preserve_meaning_strictness: high 

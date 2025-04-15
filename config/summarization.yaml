@@ -1,0 +1,19 @@
+# Configuration for Summarization Tasks
+
+# paths:
+#   input_data: ...
+#   output_models: models/summarization/{model_name}
+
+# model:
+#   name: summarization_model_v1
+#   base_model: google/pegasus-large # Example
+
+# training:
+#   num_epochs: ...
+#   batch_size: ...
+#   learning_rate: ...
+
+# generation_params:
+#   max_length: 512
+#   min_length: 50
+#   num_beams: 4 

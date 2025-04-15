@@ -72,4 +72,51 @@ python src/preprocessing/standardize_datasets.py
 
 # 4. Run multi-task training
 python src/classification/train_multitask_classifier.py
-``` 
+```
+
+## Using the Multi-Task Classifier (Inference)
+
+Once the multi-task model has been trained and saved (to the location specified in `config.yaml`, typically `models/classification/multitask_legal_model_standardized/`), you can use it to classify new text snippets for the supported tasks.
+
+### Inference Script
+
+The script `src/classification/multitask_inference.py` handles loading the trained model, tokenizer, and configuration.
+
+### Supported Tasks
+
+Based on the training configuration (excluding CaseHOLD), the model supports inference for:
+
+- `scotus`
+- `ledgar`
+- `unfair_tos`
+
+### Running Inference
+
+1.  **Direct Execution (Examples):**
+    You can run the script directly to see sample predictions on predefined text snippets:
+    ```bash
+    # Activate virtual environment
+    .\venv\Scripts\Activate.ps1
+    
+    python src/classification/multitask_inference.py
+    ```
+
+2.  **Importing the `predict` Function:**
+    To use the classifier in other parts of your application, import and use the `predict` function:
+    ```python
+    from src.classification.multitask_inference import predict
+    
+    my_text = "Some legal text snippet..."
+    task = "scotus" # Or "ledgar", "unfair_tos"
+    
+    prediction_result = predict(my_text, task)
+    
+    if "error" in prediction_result:
+        print(f"Error: {prediction_result['error']}")
+    else:
+        print(f"Task: {prediction_result['task']}")
+        print(f"Predicted Label ID: {prediction_result['predicted_label_id']}")
+        print(f"Predicted Label Name: {prediction_result['predicted_label_name']}")
+        print(f"Confidence: {prediction_result['confidence']:.4f}")
+    ```
+    *Note: Ensure the model loading within `multitask_inference.py` happens only once if you import it repeatedly (e.g., in a web server context).* 

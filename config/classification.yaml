@@ -1,0 +1,38 @@
+# Configuration for Classification Tasks
+
+paths:
+  raw_data_dir: data/processed
+  standardized_data_dir: data/standardized
+  label_counts_file: data/standardized/task_label_counts.json
+  # Output dir will be formatted with model_name
+  output_dir_template: models/classification/{model_name}
+
+datasets:
+  # List of standardized dataset names to use for multi-task training
+  multi_task_classification: ["scotus", "ledgar", "unfair_tos"]
+
+model:
+  multi_task_classification:
+    # Name for saving the trained model and determining output path
+    name: multitask_legal_model_standardized 
+    # Base transformer model from Hugging Face
+    base_model: "nlpaueb/legal-bert-base-uncased"
+    # Task labels (number of classes) are loaded from label_counts_file
+
+training:
+  multi_task_classification:
+    num_epochs: 3
+    batch_size: 16
+    learning_rate: 2.0e-5
+    # Warmup steps for the scheduler (can be 0 or a small number)
+    num_warmup_steps: 0 
+    # Enable Automatic Mixed Precision (requires compatible GPU & CUDA)
+    use_amp: true 
+    # DataLoader settings
+    num_workers: 0
+    pin_memory: true
+
+evaluation:
+  multi_task_classification:
+    # Batch size for evaluation loop
+    batch_size: 16 

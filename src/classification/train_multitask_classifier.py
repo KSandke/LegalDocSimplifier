@@ -1,4 +1,8 @@
 import torch
+# from torch.cuda.amp import GradScaler, autocast # Deprecated import
+from torch.cuda.amp import GradScaler # Keep GradScaler
+# Import amp functions directly from torch
+from torch.amp import autocast # Newer import path
 from transformers import AutoModel, AutoTokenizer, get_linear_schedule_with_warmup
 from torch.optim import AdamW
 from datasets import load_from_disk, concatenate_datasets
@@ -11,7 +15,22 @@ import os
 import json
 from tqdm.auto import tqdm
 import random
-from torch.cuda.amp import GradScaler, autocast
+import yaml # <-- Import YAML library
+
+# --- Helper Function to Load Config --- 
+def load_config(config_path="config/classification.yaml"):
+    """Loads the YAML configuration file."""
+    try:
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+        print(f"Configuration loaded successfully from {config_path}")
+        return config
+    except FileNotFoundError:
+        print(f"Error: Configuration file not found at {config_path}")
+        return None
+    except Exception as e:
+        print(f"Error loading configuration from {config_path}: {e}")
+        return None
 
 # Define a multi-task classification model
 class LegalMultiTaskModel(nn.Module):
@@ -199,15 +218,51 @@ class MultiTaskDataset(Dataset):
             "task_name": task_name # Still return task_name for the model head selection
         }
 
-# Main training function (Simplified Loading and Setup)
-def train_multitask_model():
-    # --- Configuration ---
-    STANDARDIZED_DATA_DIR = 'data/standardized'
-    # Remove casehold from the list of datasets to load
-    DATASET_NAMES = ["scotus", "ledgar", "unfair_tos"] 
-    LABEL_COUNTS_FILE = os.path.join(STANDARDIZED_DATA_DIR, 'task_label_counts.json')
+# Main training function (Modified to use config)
+def train_multitask_model(config):
+    """Trains the multi-task model based on the provided config."""
+    if not config:
+        print("Configuration dictionary is missing. Aborting training.")
+        return
 
-    # --- Load Standardized Datasets ---
+    # --- Extract Config Parameters --- 
+    paths_cfg = config.get('paths', {})
+    datasets_cfg = config.get('datasets', {})
+    model_cfg = config.get('model', {}).get('multi_task_classification', {})
+    train_cfg = config.get('training', {}).get('multi_task_classification', {})
+    eval_cfg = config.get('evaluation', {}).get('multi_task_classification', {})
+
+    STANDARDIZED_DATA_DIR = paths_cfg.get('standardized_data_dir', 'data/standardized')
+    DATASET_NAMES = datasets_cfg.get('multi_task_classification', [])
+    LABEL_COUNTS_FILE = paths_cfg.get('label_counts_file', 'data/standardized/task_label_counts.json')
+    OUTPUT_DIR_TEMPLATE = paths_cfg.get('output_dir_template', 'models/classification/{model_name}')
+    
+    MODEL_SAVE_NAME = model_cfg.get('name', 'multitask_model_default_name')
+    BASE_MODEL_NAME = model_cfg.get('base_model', 'nlpaueb/legal-bert-base-uncased')
+    
+    NUM_EPOCHS = train_cfg.get('num_epochs', 3)
+    BATCH_SIZE = train_cfg.get('batch_size', 16)
+    LEARNING_RATE = train_cfg.get('learning_rate', 2e-5)
+    NUM_WARMUP_STEPS = train_cfg.get('num_warmup_steps', 0)
+    USE_AMP = train_cfg.get('use_amp', True)
+    NUM_WORKERS = train_cfg.get('num_workers', 0)
+    PIN_MEMORY = train_cfg.get('pin_memory', True)
+
+    EVAL_BATCH_SIZE = eval_cfg.get('batch_size', 16)
+    
+    print("--- Training Configuration ---")
+    print(f"Datasets: {DATASET_NAMES}")
+    print(f"Base Model: {BASE_MODEL_NAME}")
+    print(f"Save Name: {MODEL_SAVE_NAME}")
+    print(f"Epochs: {NUM_EPOCHS}, Batch Size: {BATCH_SIZE}, LR: {LEARNING_RATE}")
+    print(f"AMP Enabled: {USE_AMP}")
+    print("----------------------------")
+
+    if not DATASET_NAMES:
+         print("Error: No datasets specified in configuration (datasets.multi_task_classification).")
+         return
+
+    # --- Load Standardized Datasets --- (Uses config vars)
     loaded_datasets = {}
     print("Loading standardized datasets...")
     datasets_to_load = DATASET_NAMES[:] 
@@ -230,7 +285,7 @@ def train_multitask_model():
         print("No standardized datasets found to train on!")
         return
         
-    # --- Load Task Label Counts --- (Loads from JSON, will only use keys matching loaded_datasets)
+    # --- Load Task Label Counts --- (Uses config var)
     print(f"Loading task label counts from {LABEL_COUNTS_FILE}...")
     try:
         with open(LABEL_COUNTS_FILE, 'r') as f:
@@ -254,93 +309,83 @@ def train_multitask_model():
          print(f"Loaded: {list(loaded_datasets.keys())}, Filtered Counts: {list(filtered_task_labels.keys())}")
          return
 
-    # --- Prepare tokenizer and model ---
-    model_name = "nlpaueb/legal-bert-base-uncased"
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = LegalMultiTaskModel(model_name, filtered_task_labels)
+    # --- Prepare tokenizer and model --- (Uses config vars)
+    tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL_NAME)
+    model = LegalMultiTaskModel(BASE_MODEL_NAME, filtered_task_labels)
     
-    # --- Device Setup ---
+    # --- Device Setup --- (Keep as is)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
     print(f"Using device: {device}")
     
-    # --- Create Dataset, Sampler, DataLoader ---
+    # --- Create Dataset, Sampler, DataLoader --- (Uses config vars)
     train_dataset = MultiTaskDataset(loaded_datasets, tokenizer) 
-    batch_size = 16 # Start with 16, maybe increase later
-    batch_sampler = TaskBalancedBatchSampler(train_dataset, batch_size) 
-    print("Creating DataLoader with TaskBalancedBatchSampler...")
+    batch_sampler = TaskBalancedBatchSampler(train_dataset, BATCH_SIZE) # Use BATCH_SIZE from config
+    print("Creating DataLoader...")
     train_dataloader = DataLoader(
         train_dataset, 
         batch_sampler=batch_sampler, 
-        num_workers=0,           
-        pin_memory=True, # Set True for GPU       
+        num_workers=NUM_WORKERS, # Use NUM_WORKERS from config          
+        pin_memory=PIN_MEMORY and (device.type == 'cuda'), # Use PIN_MEMORY from config, only if using CUDA       
     )
     print("DataLoader created successfully.")
     
-    # --- Optimizer, Scheduler --- 
-    optimizer = AdamW(model.parameters(), lr=2e-5)
-    num_epochs = 3
-    total_steps = len(batch_sampler) * num_epochs 
+    # --- Optimizer, Scheduler --- (Uses config vars)
+    optimizer = AdamW(model.parameters(), lr=LEARNING_RATE) # Use LEARNING_RATE
+    total_steps = len(batch_sampler) * NUM_EPOCHS # Use NUM_EPOCHS
     print(f"Total training steps: {total_steps}") 
     scheduler = get_linear_schedule_with_warmup(
         optimizer,
-        num_warmup_steps=0, 
+        num_warmup_steps=NUM_WARMUP_STEPS, # Use NUM_WARMUP_STEPS
         num_training_steps=total_steps
     )
 
-    # --- Initialize GradScaler for AMP ---
-    scaler = GradScaler(enabled=(device.type == 'cuda')) # Enable scaler only if using CUDA
-
-    # --- Training Loop with AMP ---
-    print("\nStarting training with TaskBalancedBatchSampler and AMP...")
-    for epoch in range(num_epochs):
+    # --- Initialize GradScaler for AMP --- (Uses config var)
+    scaler = GradScaler(enabled=(USE_AMP and device.type == 'cuda')) # Use USE_AMP
+    
+    # --- Training Loop with AMP --- (Uses config var for autocast)
+    print(f"\nStarting training ({NUM_EPOCHS} Epochs) with AMP={'Enabled' if USE_AMP and device.type == 'cuda' else 'Disabled'}...")
+    for epoch in range(NUM_EPOCHS): # Use NUM_EPOCHS
         model.train()
         total_loss = 0
         num_batches_processed = 0
-        progress_bar = tqdm(train_dataloader, desc=f"Epoch {epoch+1}/{num_epochs}", total=len(batch_sampler), leave=False) 
+        progress_bar = tqdm(train_dataloader, desc=f"Epoch {epoch+1}/{NUM_EPOCHS}", total=len(batch_sampler), leave=False) 
         
         for batch_idx, batch in enumerate(progress_bar):
-            optimizer.zero_grad(set_to_none=True) # Use set_to_none=True for potential efficiency gain
+            optimizer.zero_grad(set_to_none=True) 
             
             try:
-                 if not batch["task_name"]: continue
-                 task_name = batch["task_name"][0] 
+                if not batch["task_name"]: continue
+                task_name = batch["task_name"][0]
+                input_ids = batch["input_ids"].to(device)
+                attention_mask = batch["attention_mask"].to(device)
+                labels = batch["label"].to(device)
+                
+                # --- Optional Safeguard Label Check ---
+                expected_num_classes = filtered_task_labels.get(task_name)
+                if expected_num_classes is None: continue # Should not happen
+                if torch.any(labels < 0) or torch.any(labels >= expected_num_classes):
+                     print(f"\nERROR: OOB Label! Task:{task_name}, Range:[0,{expected_num_classes-1}], Got:{labels[torch.where((labels<0)|(labels>=expected_num_classes))[0]].tolist()}")
+                     continue 
+                # --- End Check ---
 
-                 input_ids = batch["input_ids"].to(device)
-                 attention_mask = batch["attention_mask"].to(device)
-                 labels = batch["label"].to(device)
+                # --- Autocast context manager --- (Uses new import)
+                # Enable only if using CUDA
+                with autocast(device_type=device.type, enabled=(USE_AMP and device.type == 'cuda')):
+                    logits = model(input_ids, attention_mask, task_name)
+                    loss_fct = nn.CrossEntropyLoss()
+                    loss = loss_fct(logits, labels)
+                # --- End Autocast ---
                  
-                 # --- Optional Safeguard Label Check ---
-                 expected_num_classes = filtered_task_labels.get(task_name)
-                 if expected_num_classes is None: continue # Should not happen
-                 if torch.any(labels < 0) or torch.any(labels >= expected_num_classes):
-                      print(f"\nERROR: OOB Label! Task:{task_name}, Range:[0,{expected_num_classes-1}], Got:{labels[torch.where((labels<0)|(labels>=expected_num_classes))[0]].tolist()}")
-                      continue 
-                 # --- End Check ---
-
-                 # --- Autocast context manager ---
-                 # Enable only if using CUDA
-                 with autocast(enabled=(device.type == 'cuda')): 
-                     logits = model(input_ids, attention_mask, task_name)
-                     loss_fct = nn.CrossEntropyLoss()
-                     loss = loss_fct(logits, labels)
-                 # --- End Autocast ---
+                # --- Scaled Backward / Optimizer Step / Scaler Update --- (Uses scaler which depends on USE_AMP)
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+                scheduler.step() 
                  
-                 # --- Scaled Backward ---
-                 scaler.scale(loss).backward()
-                 
-                 # --- Scaled Optimizer Step ---
-                 scaler.step(optimizer)
-                 
-                 # --- Update Scaler ---
-                 scaler.update()
-                 
-                 # --- Scheduler Step ---
-                 scheduler.step() 
-                 
-                 total_loss += loss.item() 
-                 num_batches_processed += 1
-                 progress_bar.set_postfix({'loss': loss.item(), 'task': task_name})
+                total_loss += loss.item() 
+                num_batches_processed += 1
+                progress_bar.set_postfix({'loss': loss.item(), 'task': task_name})
 
             except Exception as e:
                 print(f"\nError during training batch {batch_idx}: {e}")
@@ -350,20 +395,21 @@ def train_multitask_model():
                 continue 
 
         avg_epoch_loss = total_loss / num_batches_processed if num_batches_processed > 0 else 0
-        print(f"\nEpoch {epoch+1}/{num_epochs} finished. Average Loss: {avg_epoch_loss:.4f}")
+        print(f"\nEpoch {epoch+1}/{NUM_EPOCHS} finished. Average Loss: {avg_epoch_loss:.4f}")
         progress_bar.close()
 
-    # --- Save Model ---
-    output_dir = "models/classification/multitask_legal_model_standardized" 
+    # --- Save Model --- (Uses config vars)
+    output_dir = OUTPUT_DIR_TEMPLATE.format(model_name=MODEL_SAVE_NAME)
     if not os.path.exists(output_dir): os.makedirs(output_dir)
     print(f"\nSaving model to {output_dir}...")
     torch.save(model.state_dict(), f"{output_dir}/model.pt")
     tokenizer.save_pretrained(output_dir)
+    # Save the *filtered* labels used for this run
     with open(f"{output_dir}/task_labels.json", "w") as f: 
         json.dump(filtered_task_labels, f, indent=4) 
     print("Model saved.")
 
-    # --- Evaluate on Test Sets ---
+    # --- Evaluate on Test Sets --- (Uses config var)
     print("\nStarting evaluation...")
     model.eval()
     evaluation_results = {}
@@ -375,7 +421,8 @@ def train_multitask_model():
             
         print(f"Evaluating on {name} test set...")
         test_set = dataset_splits["test"]
-        test_dataloader = DataLoader(test_set, batch_size=16) # Simple dataloader for eval
+        # Use EVAL_BATCH_SIZE from config
+        test_dataloader = DataLoader(test_set, batch_size=EVAL_BATCH_SIZE) 
 
         all_preds = []
         all_labels = []
@@ -419,5 +466,12 @@ def train_multitask_model():
     print("\nEvaluation complete.")
     print("Evaluation Results:", evaluation_results)
 
+# Ensure all class/function definitions are above this block
+
+# --- Main Execution Block --- (Loads config and calls function)
 if __name__ == "__main__":
-    train_multitask_model() 
+    config = load_config() # Loads config/classification.yaml by default
+    if config:
+        train_multitask_model(config) # Pass config to the main function
+    else:
+        print("Failed to load configuration. Exiting.") 
