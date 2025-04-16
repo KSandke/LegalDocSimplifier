@@ -109,9 +109,9 @@ if __name__ == "__main__":
         print(f"Loaded {len(raw_datasets)} examples.")
 
         # Limit dataset size for quick testing (optional)
-        num_examples_to_process = 100
-        raw_datasets = raw_datasets.select(range(num_examples_to_process))
-        print(f"Processing only the first {num_examples_to_process} examples for testing.")
+        # num_examples_to_process = 100 # <-- Commented out
+        # raw_datasets = raw_datasets.select(range(num_examples_to_process))
+        # print(f"Processing only the first {num_examples_to_process} examples for testing.") # <-- Commented out
 
         # 3. Load Tokenizer and Model
         model_load_path = path_to_finetuned if path_to_finetuned else base_model

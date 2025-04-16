@@ -16,7 +16,7 @@ abstractive:
 
   # Model Configuration
   model_name: "t5_small_casesumm_abstractive" # Name for potential fine-tuned saving
-  base_model: "google-t5/t5-small"         # Base model for summarization
+  base_model: "models/summarization/t5_small_casesumm_finetuned" # Updated path to load fine-tuned model
   # path_to_finetuned_model: null # Optional: Path if loading a previously fine-tuned model
 
   # Tokenizer/Generation Configuration
@@ -25,7 +25,7 @@ abstractive:
   min_target_length: 40  # Min tokens for the generated summary
 
   # Inference Parameters (adjust as needed)
-  batch_size: 8          # Batch size for generating summaries
+  batch_size: 24         # Increased from 8: Batch size for generating summaries
   num_beams: 4           # Beam search width
   length_penalty: 2.0    # Penalize longer sequences slightly
   no_repeat_ngram_size: 3 # Prevent repeating trigrams
