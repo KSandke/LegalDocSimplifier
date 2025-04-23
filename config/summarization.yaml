@@ -17,7 +17,7 @@ abstractive:
   # Model Configuration
   model_name: "t5_small_casesumm_abstractive" # Name for potential fine-tuned saving
   base_model: "models/summarization/t5_small_casesumm_finetuned" # Updated path to load fine-tuned model
-  # path_to_finetuned_model: null # Optional: Path if loading a previously fine-tuned model
+  path_to_finetuned_model: "models/summarization/t5_small_casesumm_finetuned" # Optional: Path if loading a previously fine-tuned model
 
   # Tokenizer/Generation Configuration
   max_input_length: 1024 # Max tokens for T5 encoder (longer sequences will be truncated)
