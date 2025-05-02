@@ -18,15 +18,36 @@ def load_config(config_path='config/summarization.yaml'):
         config = yaml.safe_load(f)
     # Ensure the abstractive section exists
     if 'abstractive' not in config:
-        raise ValueError("'abstractive' section not found in config/summarization.yaml")
+        # Default configuration if missing
+        return {
+            'dataset_name': 'scotus',
+            'dataset_split': 'test',
+            'text_column': 'text',
+            'summary_column': 'summary',
+            'base_model': 'google/pegasus-cnn_dailymail',
+            'max_input_length': 1024,
+            'max_target_length': 256,
+            'batch_size': 4,
+            'num_beams': 5,
+            'length_penalty': 2.0,
+            'min_length': 100,
+            'no_repeat_ngram_size': 3,
+            'early_stopping': True
+        }
     return config['abstractive']
 
 # --- Data Preprocessing ---
 def preprocess_function(examples, tokenizer, max_input_length, max_target_length, text_column, summary_column):
     """Tokenizes the text and summary fields."""
-    # T5 requires a prefix for summarization tasks
-    prefix = "summarize: "
-    inputs = [prefix + doc for doc in examples[text_column]]
+    # Check if this is a T5 model (which requires prefix) or BART/other models (which don't)
+    is_t5_model = 't5' in tokenizer.name_or_path.lower()
+    
+    # Only add prefix for T5 models
+    if is_t5_model:
+        inputs = ["summarize: " + doc for doc in examples[text_column]]
+    else:
+        inputs = examples[text_column]
+        
     model_inputs = tokenizer(inputs, max_length=max_input_length, truncation=True, padding="max_length")
 
     # Setup the tokenizer for targets
@@ -34,6 +55,36 @@ def preprocess_function(examples, tokenizer, max_input_length, max_target_length
 
     model_inputs["labels"] = labels["input_ids"]
     return model_inputs
+
+# --- Post-processing for better summaries ---
+def post_process_summary(text):
+    """Clean up generated summaries to fix common issues."""
+    # Fix numbering inconsistencies (e.g., multiple "2." points)
+    lines = text.split('\n')
+    numbered_points = []
+    current_number = 1
+    
+    for line in lines:
+        # If line starts with a number followed by period
+        if line.strip() and line.strip()[0].isdigit() and '. ' in line[:5]:
+            # Replace with correct sequential numbering
+            numbered_line = f"{current_number}. {line.split('. ', 1)[1]}"
+            numbered_points.append(numbered_line)
+            current_number += 1
+        elif line.strip():
+            numbered_points.append(line)
+    
+    # Rejoin with proper newlines
+    cleaned_text = '\n'.join(numbered_points)
+    
+    # Ensure the text ends with a complete sentence (period, question mark, or exclamation)
+    if cleaned_text and not cleaned_text.rstrip()[-1] in ['.', '?', '!']:
+        # Find the last complete sentence
+        last_period = max(cleaned_text.rfind('.'), cleaned_text.rfind('?'), cleaned_text.rfind('!'))
+        if last_period > len(cleaned_text) * 0.7:  # Only trim if we're not cutting too much
+            cleaned_text = cleaned_text[:last_period+1]
+    
+    return cleaned_text.strip()
 
 # --- Evaluation using rouge-score directly ---
 def compute_metrics(decoded_preds, decoded_labels):
@@ -97,16 +148,85 @@ if __name__ == "__main__":
         max_input_length = config['max_input_length']
         max_target_length = config['max_target_length']
         batch_size = config.get('batch_size', 4) # Use .get for optional args
-        num_beams = config.get('num_beams', 4)
-        length_penalty = config.get('length_penalty', 1.0)
+        num_beams = config.get('num_beams', 5)  # Increased from 4 to 5
+        length_penalty = config.get('length_penalty', 2.0)  # Increased from 1.0
+        min_length = config.get('min_length', 100)  # New parameter
         no_repeat_ngram_size = config.get('no_repeat_ngram_size', 3)
+        early_stopping = config.get('early_stopping', True)  # New parameter
         path_to_finetuned = config.get('path_to_finetuned_model')
 
+        # Print model info
+        print(f"Using model: {path_to_finetuned if path_to_finetuned else base_model}")
+        
         # 2. Load Dataset
         print(f"Loading dataset '{dataset_name}' split '{dataset_split}'...")
-        # Note: This might download the dataset if not cached
-        raw_datasets = datasets.load_dataset(dataset_name, split=dataset_split)
+        
+        # Try to load from local directories first
+        processed_path = os.path.join('data', 'processed', dataset_name)
+        standardized_path = os.path.join('data', 'standardized', dataset_name)
+        
+        try:
+            # Check if dataset exists locally
+            if os.path.exists(processed_path):
+                print(f"Loading dataset from {processed_path}...")
+                raw_datasets = datasets.load_from_disk(processed_path)
+                if dataset_split in raw_datasets:
+                    raw_datasets = raw_datasets[dataset_split]
+                    print(f"Loaded {len(raw_datasets)} examples from processed data.")
+                else:
+                    print(f"Split '{dataset_split}' not found in dataset. Available splits: {list(raw_datasets.keys())}")
+                    # Use first available split if requested split is not found
+                    first_split = list(raw_datasets.keys())[0]
+                    print(f"Using '{first_split}' split instead.")
+                    raw_datasets = raw_datasets[first_split]
+            elif os.path.exists(standardized_path):
+                print(f"Loading dataset from {standardized_path}...")
+                raw_datasets = datasets.load_from_disk(standardized_path)
+                if dataset_split in raw_datasets:
+                    raw_datasets = raw_datasets[dataset_split]
+                    print(f"Loaded {len(raw_datasets)} examples from standardized data.")
+                else:
+                    print(f"Split '{dataset_split}' not found in dataset. Available splits: {list(raw_datasets.keys())}")
+                    # Use first available split if requested split is not found
+                    first_split = list(raw_datasets.keys())[0]
+                    print(f"Using '{first_split}' split instead.")
+                    raw_datasets = raw_datasets[first_split]
+            else:
+                # If not found locally, try to load from Hugging Face
+                print(f"Dataset not found locally. Trying to load from Hugging Face Hub...")
+                raw_datasets = datasets.load_dataset(dataset_name, split=dataset_split)
+                print(f"Loaded {len(raw_datasets)} examples from Hugging Face Hub.")
+        except Exception as e:
+            print(f"Error loading dataset: {e}")
+            print("Please ensure dataset exists in data/processed/ or data/standardized/ directory.")
+            print("Available processed datasets:", os.listdir('data/processed') if os.path.exists('data/processed') else "None")
+            print("Available standardized datasets:", os.listdir('data/standardized') if os.path.exists('data/standardized') else "None")
+            raise
+
         print(f"Loaded {len(raw_datasets)} examples.")
+
+        # Check that required columns exist
+        if text_column not in raw_datasets.column_names:
+            available_columns = raw_datasets.column_names
+            print(f"Warning: Text column '{text_column}' not found in dataset. Available columns: {available_columns}")
+            # Try to find a suitable text column
+            text_candidates = [col for col in available_columns if any(t in col.lower() for t in ['text', 'content', 'document', 'opinion'])]
+            if text_candidates:
+                text_column = text_candidates[0]
+                print(f"Using '{text_column}' as text column instead.")
+            else:
+                raise ValueError(f"Could not find a suitable text column in {available_columns}")
+                
+        if summary_column not in raw_datasets.column_names:
+            available_columns = raw_datasets.column_names
+            print(f"Warning: Summary column '{summary_column}' not found in dataset. Available columns: {available_columns}")
+            # Try to find a suitable summary column
+            summary_candidates = [col for col in available_columns if any(s in col.lower() for s in ['summary', 'abstract', 'syllabus'])]
+            if summary_candidates:
+                summary_column = summary_candidates[0]
+                print(f"Using '{summary_column}' as summary column instead.")
+            else:
+                raise ValueError(f"Could not find a suitable summary column in {available_columns}")
 
         # Limit dataset size for quick testing (optional)
         num_examples_to_process = 5 # <-- Commented out
@@ -154,14 +274,18 @@ if __name__ == "__main__":
                     input_ids=batch['input_ids'],
                     attention_mask=batch['attention_mask'],
                     max_length=max_target_length,
+                    min_length=min_length,  # Add minimum length
                     num_beams=num_beams,
                     length_penalty=length_penalty,
                     no_repeat_ngram_size=no_repeat_ngram_size,
+                    early_stopping=early_stopping,  # Add early stopping
                     # Add other generation parameters from config if needed
                 )
 
             # Decode generated tokens
             decoded_preds = tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)
+            # Apply post-processing to fix issues
+            decoded_preds = [post_process_summary(pred) for pred in decoded_preds]
             all_preds.extend(decoded_preds)
 
             # Decode labels (references)

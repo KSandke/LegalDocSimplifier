@@ -12,6 +12,7 @@ tokenizers==0.19.1
 datasets==2.20.0
 nltk==3.9.1
 spacy==3.8.5
+protobuf==4.25.3  # Required for PEGASUS models
 
 # For TextRank / sentence similarity
 networkx>=2.6 # For graph representation

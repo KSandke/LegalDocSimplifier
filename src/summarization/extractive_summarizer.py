@@ -117,8 +117,10 @@ def textrank_summarize(text, num_sentences=5, min_sentence_length=5):
             ranked_sentences.sort(key=lambda x: x[0])
         else:
             scores = nx.pagerank(nx_graph, weight='weight')
-            # Sort sentences by score
-            ranked_sentences = sorted(((scores[i], s, i) for i, s in enumerate(sentences)), reverse=True, key=lambda x: x[0])
+            # Get scored sentences with their original indices
+            ranked_sentences = [(scores[i], s, i) for i, s in enumerate(sentences)]
+            # Sort sentences by score (descending)
+            ranked_sentences.sort(reverse=True, key=lambda x: x[0])
 
     except Exception as e:
         print(f"Error during PageRank calculation: {e}")
@@ -127,14 +129,21 @@ def textrank_summarize(text, num_sentences=5, min_sentence_length=5):
         ranked_sentences = list(enumerate(sentences))
         ranked_sentences.sort(key=lambda x: x[0]) # Sort by index
 
-    # 4. Select top N sentences
-    selected_sentences = []
+    # 4. Select top N sentences based on importance, but preserve original document order
     if len(ranked_sentences) > 0:
         num_to_select = min(num_sentences, len(ranked_sentences))
-        # Get the top sentences based on score (first element of tuple if pagerank worked)
-        # or just take the first few if fallback occurred (index is first element)
-        top_sentences_with_indices = sorted(ranked_sentences[:num_to_select], key=lambda x: x[2] if len(x) == 3 else x[0])
-        selected_sentences = [s[1] for s in top_sentences_with_indices]
+        # First select the top sentences by importance
+        top_sentences = ranked_sentences[:num_to_select]
+        
+        # Then sort these top sentences by their original position in the document
+        if len(top_sentences[0]) == 3:  # (score, sentence, index) format
+            top_sentences_ordered = sorted(top_sentences, key=lambda x: x[2])
+            selected_sentences = [s[1] for s in top_sentences_ordered]
+        else:  # (index, sentence) format from fallback
+            top_sentences_ordered = sorted(top_sentences, key=lambda x: x[0])
+            selected_sentences = [s[1] for s in top_sentences_ordered]
+    else:
+        selected_sentences = []
 
     # 5. Combine into summary
     summary = ' '.join(selected_sentences)
