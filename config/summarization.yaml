@@ -43,8 +43,8 @@ fine_tuning:
   save_steps: 100                      # Save every N steps
   evaluation_strategy: "steps"         # When to run evaluation
   eval_steps: 200                      # Evaluate every N steps
-  output_dir: "./models/legal-pegasus-scotus"  # Where to save model
-  logging_dir: "./logs/legal-pegasus-scotus"   # Training logs location
+  output_dir: "./models/legal-pegasus-casesumm"  # Where to save model
+  logging_dir: "./logs/legal-pegasus-casesumm"   # Training logs location
 
 # --- Configuration for Abstractive Summarization ---
 # abstractive:
