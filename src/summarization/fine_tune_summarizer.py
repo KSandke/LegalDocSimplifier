@@ -17,14 +17,13 @@ from tqdm import tqdm
 
 # --- Configuration Loading ---
 def load_config(config_path='config/summarization.yaml'):
-    """Loads configuration from a YAML file."""
+    """Loads fine-tuning configuration from the YAML file."""
     if not os.path.exists(config_path):
         raise FileNotFoundError(f"Configuration file not found at {config_path}")
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
-    # Ensure the fine_tuning section exists
+    # Provide defaults if section is missing
     if 'fine_tuning' not in config:
-        # Default configuration if missing
         return {
             'dataset_name': 'scotus',
             'text_column': 'text',
@@ -32,7 +31,7 @@ def load_config(config_path='config/summarization.yaml'):
             'base_model': 'google/pegasus-cnn_dailymail',
             'max_input_length': 1024,
             'max_target_length': 256,
-            'batch_size': 2,  # Smaller batch size for fine-tuning
+            'batch_size': 2,
             'learning_rate': 5e-5,
             'weight_decay': 0.01,
             'num_epochs': 4,
@@ -43,21 +42,18 @@ def load_config(config_path='config/summarization.yaml'):
 
 # --- Data Preprocessing ---
 def preprocess_function(examples, tokenizer, max_input_length, max_target_length, text_column, summary_column):
-    """Tokenizes the text and summary fields."""
-    # For PEGASUS and most models other than T5, no prefix is needed
-    inputs = examples[text_column]
-    
+    """Tokenizes texts and summaries for fine-tuning."""
     # Convert inputs to strings if they're not already
+    inputs = examples[text_column]
     if inputs and not isinstance(inputs[0], str):
         inputs = [str(item) if item is not None else "" for item in inputs]
     
     # Tokenize inputs
     model_inputs = tokenizer(inputs, max_length=max_input_length, truncation=True, padding="max_length")
 
-    # Get summaries and ensure they're strings
+    # Handle summaries, ensuring they're strings
     summaries = examples[summary_column]
     if summaries and not isinstance(summaries[0], str):
-        # Convert summary/label to string if it's not already
         summaries = [str(item) if item is not None else "" for item in summaries]
     
     # Tokenize targets
@@ -68,7 +64,7 @@ def preprocess_function(examples, tokenizer, max_input_length, max_target_length
 
 # --- Evaluation Metrics ---
 def compute_metrics(eval_pred):
-    """Computes ROUGE scores."""
+    """Calculates ROUGE scores for model evaluation during training."""
     predictions, labels = eval_pred
     
     # Decode generated tokens
@@ -79,32 +75,32 @@ def compute_metrics(eval_pred):
     labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
     decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
     
-    # Initialize the scorer
+    # Initialize the ROUGE scorer
     scorer = rouge_scorer.RougeScorer(['rouge1', 'rouge2', 'rougeL'], use_stemmer=True)
     
-    # Calculate scores
+    # Calculate scores for each pair
     rouge1_f = []
     rouge2_f = []
     rougeL_f = []
     
     for pred, label in zip(decoded_preds, decoded_labels):
-        # Clean up predictions to ensure they are well-formatted
+        # Clean up predictions for better evaluation
         pred = post_process_summary(pred)
         
-        # Score this prediction
+        # Calculate scores
         scores = scorer.score(label, pred)
         rouge1_f.append(scores['rouge1'].fmeasure)
         rouge2_f.append(scores['rouge2'].fmeasure)
         rougeL_f.append(scores['rougeL'].fmeasure)
     
-    # Calculate averages
+    # Calculate mean scores
     result = {
         'rouge1': np.mean(rouge1_f) * 100,
         'rouge2': np.mean(rouge2_f) * 100,
         'rougeL': np.mean(rougeL_f) * 100
     }
     
-    # Add prediction length info
+    # Include prediction length metrics
     prediction_lens = [len(pred.split()) for pred in decoded_preds]
     result["gen_len"] = np.mean(prediction_lens)
     
@@ -112,16 +108,14 @@ def compute_metrics(eval_pred):
 
 # --- Post-processing for better summaries ---
 def post_process_summary(text):
-    """Clean up generated summaries to fix common issues."""
-    # Fix numbering inconsistencies (e.g., multiple "2." points)
+    """Improves summary formatting and handles truncated sentences."""
     lines = text.split('\n')
     numbered_points = []
     current_number = 1
     
     for line in lines:
-        # If line starts with a number followed by period
+        # Correct numbering for points
         if line.strip() and line.strip()[0].isdigit() and '. ' in line[:5]:
-            # Replace with correct sequential numbering
             numbered_line = f"{current_number}. {line.split('. ', 1)[1]}"
             numbered_points.append(numbered_line)
             current_number += 1
@@ -131,11 +125,10 @@ def post_process_summary(text):
     # Rejoin with proper newlines
     cleaned_text = '\n'.join(numbered_points)
     
-    # Ensure the text ends with a complete sentence (period, question mark, or exclamation)
+    # Fix incomplete sentences
     if cleaned_text and not cleaned_text.rstrip()[-1] in ['.', '?', '!']:
-        # Find the last complete sentence
         last_period = max(cleaned_text.rfind('.'), cleaned_text.rfind('?'), cleaned_text.rfind('!'))
-        if last_period > len(cleaned_text) * 0.7:  # Only trim if we're not cutting too much
+        if last_period > len(cleaned_text) * 0.7:
             cleaned_text = cleaned_text[:last_period+1]
     
     return cleaned_text.strip()
@@ -155,19 +148,39 @@ if __name__ == "__main__":
         max_input_length = config['max_input_length']
         max_target_length = config['max_target_length']
         batch_size = config['batch_size']
-        learning_rate = float(config['learning_rate'])  # Ensure learning_rate is a float
+        learning_rate = float(config['learning_rate'])
         weight_decay = config['weight_decay']
         num_epochs = config['num_epochs']
         output_dir = config['output_dir']
         logging_dir = config['logging_dir']
         
-        # Create directories if they don't exist
+        # Create directories if needed
         os.makedirs(output_dir, exist_ok=True)
         os.makedirs(logging_dir, exist_ok=True)
         
+        print("\nVerifying dataset and columns...")
+        # Check column structure in a small sample
+        processed_path = os.path.join('data', 'processed', dataset_name)
+        if os.path.exists(processed_path):
+            try:
+                sample_data = datasets.load_from_disk(processed_path)
+                if 'train' in sample_data:
+                    sample = sample_data['train'].select(range(min(5, len(sample_data['train']))))
+                    print(f"Sample columns: {sample.column_names}")
+                    if text_column in sample.column_names and summary_column in sample.column_names:
+                        print(f"✓ Found text column '{text_column}' and summary column '{summary_column}'")
+                        # Print sample length statistics
+                        text_lengths = [len(x.split()) for x in sample[text_column]]
+                        summary_lengths = [len(x.split()) for x in sample[summary_column]]
+                        print(f"Average text length: {sum(text_lengths)/len(text_lengths):.1f} words")
+                        print(f"Average summary length: {sum(summary_lengths)/len(summary_lengths):.1f} words")
+                    else:
+                        print(f"⚠️ Column mismatch! Available: {sample.column_names}. Check configuration.")
+            except Exception as e:
+                print(f"Error checking sample: {e}")
+        
         # 2. Load Dataset
         print(f"Loading dataset '{dataset_name}'...")
-        # Try first to load from data/processed/{dataset_name}
         processed_path = os.path.join('data', 'processed', dataset_name)
         standardized_path = os.path.join('data', 'standardized', dataset_name)
         
@@ -202,7 +215,7 @@ if __name__ == "__main__":
             dataset['validation'] = train_test_split['test'] 
             print(f"Split dataset into {len(dataset['train'])} train and {len(dataset['validation'])} validation examples")
         elif 'train' not in dataset and 'test' in dataset:
-            # If only test is available, split it into train and validation
+            # If only test is available, split it for training
             print("Only test split found. Creating train and validation splits...")
             splits = dataset['test'].train_test_split(test_size=0.2)
             dataset = datasets.DatasetDict({
@@ -211,20 +224,20 @@ if __name__ == "__main__":
             })
             print(f"Split dataset into {len(dataset['train'])} train and {len(dataset['validation'])} validation examples")
             
-        # Check if we should limit the number of training samples
+        # Limit training samples if requested
         max_train_samples = config.get('max_train_samples', None)
         if max_train_samples is not None:
             max_train_samples = min(len(dataset['train']), int(max_train_samples))
             dataset['train'] = dataset['train'].select(range(max_train_samples))
             print(f"Limited training data to {max_train_samples} examples for faster training")
         
-        # Limit validation samples too for faster evaluation
-        max_val_samples = config.get('max_val_samples', 1000)  # Default to 1000 validation examples
+        # Limit validation samples for faster evaluation
+        max_val_samples = config.get('max_val_samples', 1000)
         if max_val_samples is not None and len(dataset['validation']) > max_val_samples:
             dataset['validation'] = dataset['validation'].select(range(max_val_samples))
             print(f"Limited validation data to {max_val_samples} examples for faster evaluation")
             
-        # Check that required columns exist
+        # Verify columns exist
         if text_column not in dataset['train'].column_names:
             raise ValueError(f"Text column '{text_column}' not found in dataset. Available columns: {dataset['train'].column_names}")
         if summary_column not in dataset['train'].column_names:
@@ -237,7 +250,6 @@ if __name__ == "__main__":
         
         # 5. Preprocess Data
         print("Preprocessing data...")
-        # Define preprocessing function with specific arguments
         def preprocess_data(examples):
             return preprocess_function(
                 examples, tokenizer, max_input_length, max_target_length, 
@@ -263,14 +275,14 @@ if __name__ == "__main__":
         # 6. Setup Training Arguments
         print("Setting up training configuration...")
         
-        # Check for GPU
+        # Check GPU availability
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(f"Using device: {device}")
         
-        # Configure training arguments
+        # Configure training parameters
         training_args = Seq2SeqTrainingArguments(
             output_dir=output_dir,
-            evaluation_strategy="epoch",
+            evaluation_strategy=config.get('evaluation_strategy', "epoch"),
             learning_rate=learning_rate,
             per_device_train_batch_size=batch_size,
             per_device_eval_batch_size=batch_size,
@@ -278,14 +290,15 @@ if __name__ == "__main__":
             save_total_limit=3,
             num_train_epochs=num_epochs,
             predict_with_generate=True,
-            fp16=config.get('fp16', torch.cuda.is_available()),  # Use mixed precision if specified or if CUDA is available
+            fp16=config.get('fp16', torch.cuda.is_available()),
             logging_dir=logging_dir,
             logging_steps=100,
-            save_strategy="epoch",
+            save_strategy=config.get('save_strategy', "epoch"),
+            save_steps=config.get('save_steps', 500),
             load_best_model_at_end=True,
             metric_for_best_model="rouge2",
-            gradient_accumulation_steps=config.get('gradient_accumulation_steps', 1),  # Use gradient accumulation if specified
-            eval_steps=config.get('eval_steps', 500),  # Evaluate every eval_steps steps if specified
+            gradient_accumulation_steps=config.get('gradient_accumulation_steps', 1),
+            eval_steps=config.get('eval_steps', 500),
         )
         
         # 7. Initialize Trainer

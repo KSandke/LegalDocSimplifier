@@ -1,48 +1,50 @@
-# Configuration for Summarization Tasks
+# Configuration for Legal Document Summarization
 
-# Extractive Summarization Configuration
+# Extractive Summarization Settings
 extractive:
-  dataset_name: "scotus_dataset"
-  dataset_split: "test"
-  num_summary_sentences: 5
-  min_sentence_length: 5
+  dataset_name: "scotus_dataset"  # Dataset to use for extractive summarization
+  dataset_split: "test"           # Which split of the dataset to use
+  num_summary_sentences: 5        # Number of sentences to extract
+  min_sentence_length: 5          # Minimum words per sentence to consider
 
-# Abstractive Summarization Configuration
+# Abstractive Summarization Settings
 abstractive:
-  dataset_name: "scotus_dataset"
-  dataset_split: "test"
-  text_column: "text"
-  summary_column: "label"
-  base_model: "google/pegasus-cnn_dailymail"
-  max_input_length: 1024
-  max_target_length: 256
-  batch_size: 4
-  num_beams: 5
-  length_penalty: 2.0
-  min_length: 100
-  no_repeat_ngram_size: 3
-  early_stopping: true
-  # Uncomment below line after fine-tuning
-  # path_to_finetuned_model: "./models/pegasus-legal-summarizer"
+  dataset_name: "ChicagoHAI/CaseSumm"  # Legal case dataset with opinions and syllabi
+  dataset_split: "train"               # Dataset split to use
+  text_column: "opinion"               # Column containing the source text
+  summary_column: "syllabus"           # Column containing the reference summary
+  base_model: "nsi319/legal-pegasus"   # Specialized model for legal summarization
+  max_input_length: 1024               # Maximum input tokens
+  max_target_length: 256               # Maximum summary tokens
+  batch_size: 4                        # Batch size for inference
+  num_beams: 8                         # Beam search width (higher = better quality, slower)
+  length_penalty: 2.0                  # Controls summary length (higher = longer)
+  min_length: 50                       # Minimum tokens in generated summary
+  no_repeat_ngram_size: 2              # Prevents repetition of phrases
+  early_stopping: true                 # Stop generation when all beams finished
+  # path_to_finetuned_model: "./models/legal-pegasus-scotus/checkpoint-375"
 
 # Fine-tuning Configuration
 fine_tuning:
-  dataset_name: "ChicagoHAI/CaseSumm"
-  text_column: "opinion"
-  summary_column: "syllabus"
-  base_model: "google/pegasus-cnn_dailymail"
-  max_input_length: 512  # Reduced from 1024 for faster training
-  max_target_length: 128  # Reduced from 256 for faster training
-  batch_size: 2  # Keeping small batch size for memory efficiency
-  max_train_samples: 5000  # Use only 5000 examples for faster training
-  learning_rate: 5e-5
-  weight_decay: 0.01
-  num_epochs: 3  # Reduced from 4 for faster training
-  gradient_accumulation_steps: 4  # Add gradient accumulation for stability
-  eval_steps: 1000  # Evaluate less frequently
-  fp16: true  # Ensure mixed precision is enabled
-  output_dir: "./models/pegasus-legal-summarizer"
-  logging_dir: "./logs"
+  dataset_name: "ChicagoHAI/CaseSumm"  # Dataset for fine-tuning
+  text_column: "opinion"               # Input text column name
+  summary_column: "syllabus"           # Target summary column name
+  base_model: "nsi319/legal-pegasus"   # Starting model to fine-tune
+  max_input_length: 512                # Maximum input length (reduced for faster training)
+  max_target_length: 128               # Maximum target length 
+  batch_size: 4                        # Batch size per device
+  max_train_samples: 500               # Limit training samples for faster iteration
+  learning_rate: 3e-5                  # Adam learning rate
+  weight_decay: 0.01                   # L2 regularization
+  num_epochs: 2                        # Number of training epochs
+  gradient_accumulation_steps: 2       # Accumulate gradients over multiple steps
+  fp16: true                           # Use mixed precision training (faster)
+  save_strategy: "steps"               # When to save checkpoints
+  save_steps: 100                      # Save every N steps
+  evaluation_strategy: "steps"         # When to run evaluation
+  eval_steps: 200                      # Evaluate every N steps
+  output_dir: "./models/legal-pegasus-scotus"  # Where to save model
+  logging_dir: "./logs/legal-pegasus-scotus"   # Training logs location
 
 # --- Configuration for Abstractive Summarization ---
 # abstractive:
