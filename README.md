@@ -6,7 +6,7 @@ A pipeline for processing legal documents through classification, summarization,
 
 1.  **Clone the repository:**
     ```bash
-    git clone <your-repo-url>
+    git clone https://github.com/KSandke/LegalDocSimplifier.git
     cd LegalDocSimplifier
     ```
 2.  **Create and activate a virtual environment:**
@@ -76,7 +76,7 @@ Our fine-tuned models are hosted on Hugging Face Hub for easy access without dea
 
 For customization or offline use, you can fine-tune your own models:
 
-1. Follow the training instructions in our [Model Fine-tuning Guide](docs/model_fine_tuning.md)
+1. Follow the training instructions in the [Model Fine-tuning Guide](docs/model_fine_tuning.md)
 2. Save your models to the appropriate directories
 3. Run the pipeline with your custom models:
    ```bash
@@ -144,7 +144,7 @@ Run the inference script `src/classification/multitask_inference.py` to load the
 
 ## Extractive Summarization
 
-Implements the TextRank algorithm for extractive summarization. Configuration is managed via the `extractive` section in `config/summarization.yaml`.
+Implements the TextRank algorithm for extractive summarization. Configuration is managed via the `extractive` section in `config/summarization.yaml`. This method of summarization is not used in the pipeline. 
 
 ### Running
 
