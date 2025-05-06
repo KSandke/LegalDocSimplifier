@@ -1,8 +1,8 @@
 import torch
 import json
 import os
-import yaml # For loading config
-from transformers import AutoModel, AutoTokenizer, AutoConfig # Added AutoConfig
+import yaml
+from transformers import AutoModel, AutoTokenizer, AutoConfig
 from torch import nn
 from datasets import load_from_disk
 import datasets
@@ -15,8 +15,7 @@ function to perform inference on new text inputs for the supported tasks
 
 Prerequisites:
 1. A trained multi-task model saved by `train_multitask_classifier.py` 
-   (Expected location configured in `config/config.yaml`, typically 
-    `models/classification/multitask_legal_model_standardized/`).
+   (Expected location configured in `config/config.yaml`).
 2. The `config/config.yaml` file correctly pointing to the model and paths.
 3. The necessary libraries installed (see requirements.txt).
 
@@ -28,13 +27,11 @@ This will run the example usage section at the bottom, classifying sample texts.
 How to Use in Other Code:
 1. Import the `predict` function: 
    `from src.classification.multitask_inference import predict` 
-   (Ensure model loading happens only once if importing).
 2. Call `predict(your_text, desired_task_name)` where `desired_task_name` is 
    one of "scotus", "ledgar", or "unfair_tos".
 """
 
-# --- Helper Function to Load Config --- 
-# (Copied from training script - ideally import from a shared utils file)
+# Helper Function to Load Config
 def load_config(config_path="config/classification.yaml"):
     """Loads the YAML configuration file."""
     try:
@@ -49,20 +46,16 @@ def load_config(config_path="config/classification.yaml"):
         print(f"Error loading configuration from {config_path}: {e}")
         return None
 
-# --- LegalMultiTaskModel Definition ---
-# (Copied from training script - ensure it's identical)
+# LegalMultiTaskModel Definition
 class LegalMultiTaskModel(nn.Module):
     def __init__(self, encoder_name, task_labels):
         super().__init__()
-        # Load pre-trained encoder and its config
         self.encoder = AutoModel.from_pretrained(encoder_name)
-        # Task-specific classification heads
         self.task_classifiers = nn.ModuleDict({
-            # Ensure num_labels is an int
             task_name: nn.Linear(self.encoder.config.hidden_size, int(num_labels))
             for task_name, num_labels in task_labels.items()
         })
-        self.task_labels = task_labels # Store num labels per task
+        self.task_labels = task_labels
 
     def forward(self, input_ids, attention_mask, task_name=None):
         outputs = self.encoder(input_ids=input_ids, attention_mask=attention_mask)
@@ -73,7 +66,7 @@ class LegalMultiTaskModel(nn.Module):
             return self.task_classifiers[task_name](pooled_output)
         return {task: classifier(pooled_output) for task, classifier in self.task_classifiers.items()}
 
-# --- Load Configuration ---
+# Load Configuration
 config = load_config()
 if not config:
     print("Exiting: Could not load config.")
@@ -83,7 +76,7 @@ paths_cfg = config.get('paths', {})
 model_cfg = config.get('model', {}).get('multi_task_classification', {})
 
 # Get model details from config
-MODEL_SAVE_NAME = model_cfg.get('name', 'multitask_legal_model_standardized') # Use the correct name
+MODEL_SAVE_NAME = model_cfg.get('name', 'multitask_legal_model_standardized')
 BASE_MODEL_NAME = model_cfg.get('base_model', 'nlpaueb/legal-bert-base-uncased')
 OUTPUT_DIR_TEMPLATE = paths_cfg.get('output_dir_template', 'models/classification/{model_name}')
 
@@ -94,52 +87,44 @@ model_weights_path = os.path.join(model_dir, "model.pt")
 
 print(f"Attempting to load model from: {model_dir}")
 
-# --- Load Task Label Counts (Number of Classes) ---
+# Load Task Label Counts (Number of Classes)
 try:
     with open(task_labels_path, "r") as f:
-        # e.g., {'scotus': 13, 'ledgar': 100, 'unfair_tos': 8}
         task_num_labels = json.load(f) 
     print(f"Loaded task label counts: {task_num_labels}")
 except Exception as e:
      print(f"Error loading task labels JSON: {e}")
      exit()
 
-# --- Build id2label mapping by loading original dataset features ---
+# Build id2label mapping by loading original dataset features
 print("Building id2label mappings from original datasets...")
 task_to_id2label = {}
-raw_data_dir = paths_cfg.get('raw_data_dir', 'data/processed') # Path to original processed datasets
+raw_data_dir = paths_cfg.get('raw_data_dir', 'data/processed')
 
-for task_name in task_num_labels.keys(): # Iterate through tasks we trained on
+for task_name in task_num_labels.keys():
     try:
-        # Construct path to the *original* processed dataset directory
         original_dataset_path = os.path.join(raw_data_dir, f"{task_name}_dataset")
         if not os.path.exists(original_dataset_path):
              print(f"  Warning: Original dataset not found for task '{task_name}' at {original_dataset_path}. Cannot get label names.")
              continue
              
-        # Load only the features, not the whole dataset
-        # We need to load a dummy dataset instance to access features if from_disk isn't available for Features directly
         temp_dataset = load_from_disk(original_dataset_path)
-        features = temp_dataset['train'].features # Assuming features are same across splits
+        features = temp_dataset['train'].features
         
-        # Find the correct original label feature ('label' or 'labels')
         label_feature_name = None
         if 'label' in features:
             label_feature_name = 'label'
-        elif 'labels' in features: # For unfair_tos
+        elif 'labels' in features:
             label_feature_name = 'labels'
             
         if label_feature_name:
             label_feature = features[label_feature_name]
-            # Handle sequences (like unfair_tos 'labels') vs single ClassLabels
             if isinstance(label_feature, datasets.Sequence):
-                # Get the inner feature which should be ClassLabel
                 inner_feature = label_feature.feature 
                 if hasattr(inner_feature, 'names'):
-                    # Create id2label: {0: name0, 1: name1, ...}
                     task_to_id2label[task_name] = {i: name for i, name in enumerate(inner_feature.names)}
                     print(f"  Loaded {len(inner_feature.names)} labels for task '{task_name}' (from Sequence)")
-            elif hasattr(label_feature, 'names'): # For single ClassLabel features
+            elif hasattr(label_feature, 'names'):
                  task_to_id2label[task_name] = {i: name for i, name in enumerate(label_feature.names)}
                  print(f"  Loaded {len(label_feature.names)} labels for task '{task_name}'")
             else:
@@ -151,9 +136,8 @@ for task_name in task_num_labels.keys(): # Iterate through tasks we trained on
         print(f"  Error loading features or building mapping for task '{task_name}': {e}")
 
 print(f"Finished building mappings. Found names for tasks: {list(task_to_id2label.keys())}")
-# --- End Building id2label mapping ---
 
-# --- Load Tokenizer ---
+# Load Tokenizer
 try:
     tokenizer = AutoTokenizer.from_pretrained(model_dir)
     print("Tokenizer loaded.")
@@ -161,26 +145,25 @@ except Exception as e:
     print(f"Error loading tokenizer: {e}")
     exit()
 
-# --- Initialize Model ---
-# Pass the task_num_labels (counts) loaded from json
+# Initialize Model
 model = LegalMultiTaskModel(BASE_MODEL_NAME, task_num_labels) 
 print("Model structure initialized.")
 
-# --- Load Model Weights ---
+# Load Model Weights
 try:
-    model.load_state_dict(torch.load(model_weights_path, map_location=torch.device('cpu'))) # Load to CPU first
+    model.load_state_dict(torch.load(model_weights_path, map_location=torch.device('cpu')))
     print("Model weights loaded.")
 except Exception as e:
     print(f"Error loading model weights from {model_weights_path}: {e}")
     exit()
 
-# --- Setup Device and Eval Mode ---
+# Setup Device and Eval Mode
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model.to(device)
-model.eval() # Set model to evaluation mode (disables dropout, etc.)
+model.eval()
 print(f"Model moved to {device} and set to eval mode.")
 
-# --- Prediction Function (Modified) ---
+# Prediction Function
 def predict(text, task_name):
     """
     Classifies the input text for the specified task using the loaded multi-task model.
@@ -204,9 +187,7 @@ def predict(text, task_name):
          return {"error": f"Task '{task_name}' is not supported by this model. Supported tasks: {list(model.task_classifiers.keys())}"}
          
     # Tokenize
-    # Ensure tokenizer handles padding/truncation appropriately for single inputs
     inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True, max_length=512)
-    # Move tensors to the correct device
     input_ids = inputs["input_ids"].to(device)
     attention_mask = inputs["attention_mask"].to(device)
     
@@ -224,21 +205,19 @@ def predict(text, task_name):
         pred_class_id = pred_class_id_tensor.item()
         confidence_score = confidence_score.item()
 
-        # --- Use our manually created mapping ---
         if task_name in task_to_id2label:
             label_name = task_to_id2label[task_name].get(pred_class_id, f"ID_{pred_class_id}_NotInMap")
         else:
             label_name = f"ID_{pred_class_id}_NoMapForTask"
-        # --- End change ---
             
     return {
         "task": task_name,
         "predicted_label_id": pred_class_id,
-        "predicted_label_name": label_name, # Use name from our mapping
+        "predicted_label_name": label_name,
         "confidence": confidence_score
     }
 
-# --- Example Usage ---
+# Example Usage
 if __name__ == "__main__":
     """
     Demonstrates how to use the predict function. 
@@ -251,7 +230,7 @@ if __name__ == "__main__":
     print("\n--- Inference Examples ---")
     
     # Predict for each available task (should be 3 now)
-    available_tasks = list(task_num_labels.keys()) # Get tasks from loaded config
+    available_tasks = list(task_num_labels.keys())
     print(f"Available tasks for prediction: {available_tasks}")
 
     if "scotus" in available_tasks:
@@ -267,8 +246,4 @@ if __name__ == "__main__":
     if "unfair_tos" in available_tasks:
         result_unfair = predict(sample_text_unfair, "unfair_tos")
         print(f"\nInput (Unfair-ToS): {sample_text_unfair[:100]}...")
-        print(f"Prediction: {result_unfair}")
-
-    # Example of predicting for a task the model wasn't trained on (or has no head for)
-    # result_invalid = predict(sample_text_scotus, "casehold") 
-    # print(f"\nPrediction (Invalid Task): {result_invalid}") 
+        print(f"Prediction: {result_unfair}") 

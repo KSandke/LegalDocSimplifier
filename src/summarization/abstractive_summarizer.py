@@ -267,7 +267,7 @@ if __name__ == "__main__":
                 examples, tokenizer, max_input_length, max_target_length, text_column, summary_column
             ),
             batched=True,
-            remove_columns=raw_datasets.column_names # Remove original columns
+            remove_columns=raw_datasets.column_names
         )
 
         # 5. Prepare DataLoader

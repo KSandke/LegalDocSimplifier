@@ -1,6 +1,6 @@
 # Legal Document Simplifier
 
-A project to classify, summarize, and simplify legal documents using NLP.
+A pipeline for processing legal documents through classification, summarization, and simplification.
 
 ## Project Setup
 
@@ -27,24 +27,76 @@ A project to classify, summarize, and simplify legal documents using NLP.
     python -m nltk.downloader punkt
     ```
 
+## Using the Pipeline
+
+This project provides two different pipeline implementations:
+
+### Option 1: Using Models from Hugging Face Hub (Recommended)
+
+Our fine-tuned models are hosted on Hugging Face Hub for easy access without dealing with large file downloads:
+
+1. **Use the Hugging Face pipeline:**
+   ```bash
+   python src/pipeline/huggingface_pipeline.py --input_file=YOUR_DOCUMENT.txt
+   ```
+
+2. **Command-line options:**
+   ```
+   --input_file TEXT          Path to a text file containing legal document
+   --input_text TEXT          Direct input of legal text (alternative to input_file)
+   --output_file TEXT         Path to save the processing results
+   --classification_model     HF model ID for classification (default: 'KSandke/legal-classifier')
+   --summarization_model      HF model ID for summarization (default: 'KSandke/legal-summarizer')
+   --simplification_model     HF model ID for simplification (default: 'KSandke/legal-simplifier')
+   --quiet                    Suppress progress bars and transformer warnings
+   ```
+
+3. **Examples:**
+   ```bash
+   # Process a file with default model IDs
+   python src/pipeline/huggingface_pipeline.py --input_file=contracts/agreement.txt --output_file=results/agreement_processed.txt
+
+   # Process text directly with custom model IDs
+   python src/pipeline/huggingface_pipeline.py --input_text="This Agreement shall be governed by..." --classification_model="nlpaueb/legal-bert-base-uncased"
+
+   # Suppress transformer logs and progress bars
+   python src/pipeline/huggingface_pipeline.py --quiet
+   ```
+
+4. **Direct API usage:**
+   ```python
+   from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+
+   # Load summarizer model
+   tokenizer = AutoTokenizer.from_pretrained("KSandke/legal-summarizer")
+   model = AutoModelForSeq2SeqLM.from_pretrained("KSandke/legal-summarizer")
+   ```
+
+### Option 2: Fine-tune Your Own Models
+
+For customization or offline use, you can fine-tune your own models:
+
+1. Follow the training instructions in our [Model Fine-tuning Guide](docs/model_fine_tuning.md)
+2. Save your models to the appropriate directories
+3. Run the pipeline with your custom models:
+   ```bash
+   python src/pipeline/legal_document_pipeline.py --input_file=YOUR_DOCUMENT.txt
+   ```
+
 ## Project Structure
 
 - `config/`: YAML configuration files for different components.
     - `classification.yaml`: Settings for classification models.
     - `summarization.yaml`: Settings for summarization models (extractive & abstractive).
-    - `simplification.yaml`: Settings for simplification (placeholder).
+    - `simplification.yaml`: Settings for simplification models.
 - `data/`: Directory for datasets.
     - `raw/`: Original, unprocessed data (put downloaded datasets here).
     - `processed/`: Datasets after initial processing (e.g., by `lex_glue_loader.py`).
     - `standardized/`: Datasets processed into a uniform format for training.
-    - `dictionary/`: Legal term dictionary/knowledge base (optional).
-    - `reference_summaries/`: Human-written summaries for evaluation (optional).
-    - `.gitignore` configured to ignore contents by default.
 - `models/`: Stored trained model files (ignored by git).
     - `classification/`: Classification models.
-    - `simplification_ner/`: NER models for simplification.
+    - `simplification/`: Models for simplification.
     - `summarization/`: Summarization models.
-- `notebooks/`: Jupyter notebooks for exploration and experimentation.
 - `src/`: Source code for the project.
     - `classification/`: Multi-task document classification.
         - `train_multitask_classifier.py`: Trains the model.
@@ -52,15 +104,18 @@ A project to classify, summarize, and simplify legal documents using NLP.
     - `preprocessing/`: Data loading, cleaning, and standardization scripts.
         - `standardize_datasets.py`: Standardizes datasets for multi-task training.
     - `summarization/`: Document summarization logic.
-        - `extractive_summarizer.py`: Implements TextRank extractive summarization.
+        - `extractive_summarizer.py`: Implements TextRank extractive summarization. (Not used in the pipeline)
         - `abstractive_summarizer.py`: Runs inference using a pre-trained/fine-tuned abstractive model.
         - `finetune_abstractive.py`: Fine-tunes an abstractive summarization model.
-    - `simplification/`: Text simplification logic (placeholder).
-    - `evaluation/`: Model evaluation scripts (placeholder).
+    - `simplification/`: Text simplification logic.
+    - `pipeline/`: Legal document processing pipeline.
+        - `legal_document_pipeline.py`: Pipeline for using locally fine-tuned models.
+        - `huggingface_pipeline.py`: Pipeline using Hugging Face Hub models that I trained myself.
     - `utils/`: Shared utility functions.
         - `inspect_standardized_labels.py`: Utility to check label ranges.
-- `tests/`: Unit and integration tests (placeholder).
 - `requirements.txt`: Project dependencies.
+- `.gitignore` configured to ignore contents by default.
+- `model_fine_tuning.md`: Guide for fine tuning your own models.
 
 ## Multi-Task Classification
 
@@ -76,50 +131,13 @@ Uses datasets standardized by `src/preprocessing/standardize_datasets.py`:
 
 *(Note: CaseHOLD was excluded as its task structure is incompatible with this classification setup.)*
 
-### Workflow
+### Training
 
-1.  **Initial Loading:** Raw datasets are loaded using `data/raw/lex_glue_loader.py` and saved to `data/processed/`.
-2.  **Standardization:** All relevant datasets (`scotus`, `ledgar`, `unfair_tos`) are converted to a uniform format (`input_text`, `input_label`, `task_name`) using `src/preprocessing/standardize_datasets.py`. This script saves the final training-ready datasets to `data/standardized/` and also creates `data/standardized/task_label_counts.json`.
-3.  **Training:** The multi-task model is trained using `src/classification/train_multitask_classifier.py`. This script:
-    - Loads the standardized datasets (`scotus`, `ledgar`, `unfair_tos`) from `data/standardized/`.
-    - Loads the label counts from `data/standardized/task_label_counts.json`.
-    - Uses the `LegalMultiTaskModel` architecture (shared Legal-BERT encoder, separate heads per task).
-    - Employs the `TaskBalancedBatchSampler` to ensure each training batch contains examples from only one task.
-    - Utilizes Automatic Mixed Precision (AMP) for faster training on compatible GPUs.
-    - Saves the final trained model to `models/classification/multitask_legal_model_standardized/`.
-
-### Training Configuration (`config/classification.yaml`)
-
-- Batch Size: 16 (used in `TaskBalancedBatchSampler`)
-- AMP Enabled: Yes
-- Optimizer: AdamW (lr=2e-5)
-- Epochs: 3 (default)
-
-### Running
-
-```bash
-# Activate virtual environment
-.\venv\Scripts\Activate.ps1
-
-# 1. Ensure raw/processed data exists in data/processed/
-# Example: python data/raw/lex_glue_loader.py
-
-# 2. Run standardization for classification datasets
-python src/preprocessing/standardize_datasets.py
-
-# 3. Run multi-task training (uses settings from config/classification.yaml)
-python src/classification/train_multitask_classifier.py
-```
+The multi-task model is trained using `src/classification/train_multitask_classifier.py`.
 
 ### Using the Classifier (Inference)
 
 Run the inference script `src/classification/multitask_inference.py` to load the trained model and classify new text for the supported tasks (`scotus`, `ledgar`, `unfair_tos`).
-
-```bash
-python src/classification/multitask_inference.py
-```
-
-See the script's docstring for details on importing the `predict` function.
 
 ## Extractive Summarization
 
@@ -164,4 +182,37 @@ The script `src/summarization/abstractive_summarizer.py` loads a pre-trained or 
 
 ## Simplification
 
-*(Placeholder - Functionality to be added)* 
+The simplification component uses fine-tuned T5 or BART models to convert complex legal language into more accessible text.
+
+## Model Types
+
+This project uses three types of models:
+
+1. **Classification Model** - Identifies legal document types using Legal-BERT
+2. **Summarization Model** - Creates concise summaries using T5 or PEGASUS
+3. **Simplification Model** - Rewrites text in simpler language using T5
+
+All three models are available on Hugging Face Hub:
+- [KSandke/legal-classifier](https://huggingface.co/KSandke/legal-classifier)
+- [KSandke/legal-summarizer](https://huggingface.co/KSandke/legal-summarizer)
+- [KSandke/legal-simplifier](https://huggingface.co/KSandke/legal-simplifier)
+
+## Output Format
+
+The pipeline produces results in the following format:
+
+```
+=== Results ===
+
+CLASSIFICATION:
+  Result: LABEL_0
+  Confidence: 0.5955
+
+SUMMARY:
+  Length: 76 words
+  This Agreement shall be governed by and construed in accordance with the laws of the State of Delaware...
+
+SIMPLIFIED SUMMARY:
+  Length: 29 words
+  The parties submit to the exclusive jurisdiction of the courts located in New Castle County...
+```

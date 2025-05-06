@@ -123,7 +123,18 @@ data/standardized/*
 # Model files - uncomment lines below if you don't want to track models
 models/*
 !models/**/.gitkeep
-!models/pipeline/**
+!models/pipeline/
+!models/pipeline/**/.gitkeep
+!models/pipeline/**/
+# Ignore model binary files while keeping directories
+models/pipeline/**/*.safetensors
+models/pipeline/**/*.bin
+models/pipeline/**/*.pt
+models/pipeline/**/*.onnx
+models/pipeline/**/model.*
+
+# Script with credentials
+scripts/upload_models_to_hf.py
 
 # Notebook Checkpoints
 .ipynb_checkpoints/
@@ -138,3 +149,8 @@ logs/
 # OS generated files
 .DS_Store
 Thumbs.db 
+
+# Hugging Face
+.hf_token
+
+MODEL_DEVELOPMENT.md
