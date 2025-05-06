@@ -5,6 +5,7 @@ import datasets
 import numpy as np
 import nltk
 import traceback
+import multiprocessing
 from transformers import (
     AutoTokenizer, 
     AutoModelForSeq2SeqLM, 
@@ -136,6 +137,12 @@ def post_process_summary(text):
 # --- Main Execution ---
 if __name__ == "__main__":
     try:
+        # Set CPU usage to all cores except one
+        total_cores = multiprocessing.cpu_count()
+        cores_to_use = max(1, total_cores - 1)  # Use all cores except one, minimum 1
+        torch.set_num_threads(cores_to_use)
+        print(f"Using {cores_to_use} of {total_cores} CPU cores for training")
+        
         # 1. Load Configuration
         print("Loading configuration...")
         config = load_config()

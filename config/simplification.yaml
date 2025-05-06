@@ -1,17 +1,48 @@
-# Configuration for Simplification Tasks
+# Configuration for Text Simplification Models
 
-# paths:
-#   input_data: ...
-#   term_dictionary: data/dictionary/legal_terms.json
-#   output_models: models/simplification_ner/{model_name}
+paths:
+  input_data: data/raw/lexsimple.csv
+  term_dictionary: data/dictionary/legal_terms.json
+  output_models: models/simplification/{model_name}
 
-# model:
-#   ner_model_name: simplification_ner_v1
-#   base_model: ... # NER base model
+dataset:
+  # Available options:
+  # - turk: English simplifications from Amazon Mechanical Turk 
+  # - wikilarge: English Wikipedia simplifications
+  # - multisim: Multilingual simplification dataset
+  name: turk
 
-# training:
-#   ...
+model:
+  # Available options:
+  # - facebook/bart-base: Balanced performance (139M params)
+  # - nsi319/legal-led-base-16384: Legal-domain for long texts (165M params)
+  # - nsi319/legal-pegasus: Legal-domain PEGASUS (best performance)
+  # - t5-small: Lightweight option (60M params)
+  base_model: nsi319/legal-pegasus
+  simplification_model_name: legal_simplifier_v1
 
-# simplification_params:
-#   level: medium
-#   preserve_meaning_strictness: high 
+training:
+  max_input_length: 512
+  max_target_length: 128
+  batch_size: 8
+  eval_batch_size: 8
+  learning_rate: 5e-5
+  epochs: 3
+  weight_decay: 0.01
+  save_steps: 100
+  warmup_steps: 500
+  gradient_accumulation_steps: 1
+  evaluation_strategy: steps
+  eval_steps: 100
+  fp16: true  # Mixed precision training
+  save_total_limit: 5
+
+simplification_params:
+  level: medium  # Options: low, medium, high
+  preserve_meaning_strictness: high  # How strictly to preserve original meaning
+  generation_params:
+    num_beams: 4
+    length_penalty: 1.0
+    early_stopping: true
+    do_sample: false  # Set to true for more varied outputs
+    temperature: 1.0 
