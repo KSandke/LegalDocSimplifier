@@ -123,6 +123,7 @@ data/standardized/*
 # Model files - uncomment lines below if you don't want to track models
 models/*
 !models/**/.gitkeep
+!models/pipeline/**
 
 # Notebook Checkpoints
 .ipynb_checkpoints/
