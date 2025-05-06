@@ -108,6 +108,9 @@ For customization or offline use, you can fine-tune your own models:
         - `abstractive_summarizer.py`: Runs inference using a pre-trained/fine-tuned abstractive model.
         - `finetune_abstractive.py`: Fine-tunes an abstractive summarization model.
     - `simplification/`: Text simplification logic.
+        - `train_lexsimple.py`: Fine-tuning script for text simplification models.
+        - `data_loader.py`: Handles loading and processing simplification datasets.
+        - `inspect_lexsimple.py`: Utility for examining the simplification dataset.
     - `pipeline/`: Legal document processing pipeline.
         - `legal_document_pipeline.py`: Pipeline for using locally fine-tuned models.
         - `huggingface_pipeline.py`: Pipeline using Hugging Face Hub models that I trained myself.
@@ -180,9 +183,69 @@ The script `src/summarization/abstractive_summarizer.py` loads a pre-trained or 
     python src/summarization/abstractive_summarizer.py
     ```
 
-## Simplification
+## Text Simplification
 
-The simplification component uses fine-tuned T5 or BART models to convert complex legal language into more accessible text.
+The text simplification component transforms complex legal language into more accessible text, preserving core meaning while reducing complexity. This makes legal documents more understandable to non-specialists.
+
+### Approach
+
+Our simplification model is built on transformer-based sequence-to-sequence architecture, fine-tuned specifically for legal language simplification:
+
+1. **Models**: The system can use various pre-trained models as a base:
+   - `nsi319/legal-pegasus`: Legal domain-adapted PEGASUS model (default, best performance)
+   - `nsi319/legal-led-base-16384`: Legal domain model for longer texts
+   - `facebook/bart-base`: General text simplification model
+   - `t5-small`: Lightweight alternative for constrained environments
+
+2. **Training Datasets**: The simplification models are trained on parallel datasets of complex-simple text pairs:
+   - `turk`: English simplifications created by Amazon Mechanical Turk workers
+   - `wikilarge`: English Wikipedia simplifications (simple vs. standard)
+   - `multisim`: Multilingual simplification dataset
+   - `lexsimple`: Custom legal document simplification dataset
+
+3. **Simplification Parameters**: The model behavior can be configured via `simplification_params` in `config/simplification.yaml`:
+   - `level`: Controls simplification aggressiveness (low, medium, high)
+   - `preserve_meaning_strictness`: How strictly to maintain original meaning
+   - Generation parameters like beam search settings, length penalty, and sampling options
+
+### Using the Simplifier
+
+The simplification can be used in three ways:
+
+1. **Through the Pipeline**: The most common approach is to use it as part of the full pipeline, after classification and summarization:
+   ```bash
+   python src/pipeline/huggingface_pipeline.py --input_file=your_document.txt
+   ```
+
+2. **Fine-tuning Your Own Model**: For domain-specific simplification, you can fine-tune on your own parallel data:
+   ```bash
+   # Prepare your data in simple/complex pairs
+   # Edit config/simplification.yaml with your settings
+   python src/simplification/train_lexsimple.py
+   ```
+
+3. **Direct API Usage**: For integration into other applications:
+   ```python
+   from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+   
+   # Load simplifier model
+   tokenizer = AutoTokenizer.from_pretrained("KSandke/legal-simplifier")
+   model = AutoModelForSeq2SeqLM.from_pretrained("KSandke/legal-simplifier")
+   
+   # Simplify text
+   inputs = tokenizer("This Agreement shall be governed by and construed in accordance with the laws...", 
+                     return_tensors="pt", truncation=True, max_length=512)
+   outputs = model.generate(**inputs, max_length=150, min_length=40, num_beams=4)
+   simplified_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
+   ```
+
+### Performance Evaluation
+
+The simplification model is evaluated using multiple metrics:
+- **ROUGE scores**: Measures lexical overlap with human-created simplifications
+- **BLEU scores**: Measures phrase-level accuracy
+- **Readability metrics**: Flesch-Kincaid and other readability scores to verify reduction in complexity
+- **Meaning preservation**: Measured by semantic similarity between original and simplified text
 
 ## Model Types
 
@@ -190,7 +253,7 @@ This project uses three types of models:
 
 1. **Classification Model** - Identifies legal document types using Legal-BERT
 2. **Summarization Model** - Creates concise summaries using T5 or PEGASUS
-3. **Simplification Model** - Rewrites text in simpler language using T5
+3. **Simplification Model** - Rewrites text in simpler language using legal domain-adapted models
 
 All three models are available on Hugging Face Hub:
 - [KSandke/legal-classifier](https://huggingface.co/KSandke/legal-classifier)
