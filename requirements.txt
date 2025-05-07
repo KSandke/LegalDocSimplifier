@@ -1,65 +1,44 @@
-# Legal Document Simplifier Requirements
-# =====================================
-# For Python 3.12
+# Python 3.12
+# Core Libraries
+numpy==1.26.4
+pandas==2.2.3
+scikit-learn==1.6.1
+scipy==1.15.2
+tqdm==4.67.1
 
-# Core Data Science Libraries
-# --------------------------
-numpy==1.26.4          # Numerical computing
-pandas==2.2.3          # Data manipulation and analysis
-scikit-learn==1.6.1    # Machine learning utilities and TF-IDF
-scipy==1.15.2          # Scientific computing
-tqdm==4.67.1           # Progress bars for training and processing
+# NLP Libraries
+transformers==4.43.3
+tokenizers==0.19.1
+datasets==2.20.0
+nltk==3.9.1
+spacy==3.8.5
+protobuf==4.25.3  # Required for PEGASUS models
 
-# NLP and Transformer Libraries
-# ----------------------------
-transformers==4.43.3   # Hugging Face transformers for all models
-tokenizers==0.19.1     # Fast tokenizers for transformers
-datasets==2.20.0       # Dataset loading and processing
-nltk==3.9.1            # Natural language toolkit for text processing
-spacy==3.8.5           # Advanced NLP framework
-spacy-legacy==3.0.12   # Backward compatibility for spacy
-spacy-loggers==1.0.5   # Logging for spacy
-protobuf==6.30.2       # Protocol buffers (required for model serialization)
+# For TextRank / sentence similarity
+networkx>=2.6 # For graph representation
+scikit-learn>=1.0 # Already included, but ensure version for TF-IDF/cosine
 
-# Extractive Summarization
-# -----------------------
-networkx==3.4.2        # Graph algorithms for TextRank implementation
+# Deep Learning
+torch==2.6.0+cu118
+torchaudio==2.6.0+cu118
+torchvision==0.21.0+cu118
+accelerate==1.6.0
 
-# Deep Learning Framework
-# ----------------------
-torch==2.6.0+cu118     # PyTorch with CUDA 11.8 support
-torchaudio==2.6.0+cu118  # Audio processing (dependency)
-torchvision==0.21.0+cu118  # Vision processing (dependency)
-accelerate==1.6.0      # Distributed training and mixed precision
-
-# Evaluation Metrics
-# -----------------
-rouge_score==0.1.2     # Summarization evaluation metric
-bleu==0.3              # Machine translation evaluation metric
-evaluate==0.4.2        # Hugging Face evaluation framework
+# Evaluation
+rouge_score==0.1.2
+bleu==0.3
+evaluate==0.4.2
 
 # Configuration
-# ------------
-PyYAML==6.0.2          # YAML parsing for configuration files
+PyYAML==6.0.2
 
-# Hugging Face Ecosystem
-# ---------------------
-huggingface-hub==0.30.2  # Model repository integration
-fsspec==2024.5.0       # Filesystem abstraction
-safetensors==0.5.3     # Efficient model weight storage format
+# Utilities
+huggingface-hub>=0.30.0,<1.0
+fsspec
+safetensors==0.5.3
 
-# Model-Specific Dependencies
-# -------------------------
-sentencepiece==0.2.0   # Tokenization for T5, LegalPegasus models
-regex==2024.11.6       # Advanced regular expressions
+# Optional but recommended
+sentencepiece==0.2.0
 
-# Web Interface
-# ------------
-gradio==4.41.0         # Web UI for demonstrations
-aiohttp==3.11.16       # Async HTTP client/server for API
-pillow==10.4.0         # Image processing for UI components
-python-multipart==0.0.20  # File upload handling for web interface
-
-# Development and Monitoring
-# -------------------------
-psutil==7.0.0          # System resource monitoring for training 
+# Web Frameworks / UI
+gradio==4.41.0 # For building quick web demos 
