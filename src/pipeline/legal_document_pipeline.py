@@ -54,6 +54,7 @@ def summarize_text(text, config=None):
             length_penalty=config.get('length_penalty', 2.0),
             no_repeat_ngram_size=config.get('no_repeat_ngram_size', 3),
             early_stopping=config.get('early_stopping', True),
+            decoder_start_token_id=model.config.decoder_start_token_id
         )
     
     # Decode output

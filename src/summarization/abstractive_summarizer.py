@@ -294,6 +294,7 @@ if __name__ == "__main__":
                     length_penalty=length_penalty,
                     no_repeat_ngram_size=no_repeat_ngram_size,
                     early_stopping=early_stopping,
+                    decoder_start_token_id=model.config.decoder_start_token_id
                 )
 
             # Decode generated tokens

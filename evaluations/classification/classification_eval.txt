@@ -1,0 +1,11 @@
+--- Inference Examples ---
+Available tasks for prediction: ['scotus', 'ledgar', 'unfair_tos']
+
+Input (SCOTUS): The petitioner argues that the search violated the Fourth Amendment's protection against unreasonabl...
+Prediction: {'task': 'scotus', 'predicted_label_id': 0, 'predicted_label_name': '1', 'confidence': 0.9583285450935364}
+
+Input (LEDGAR): This Agreement shall be governed by and construed in accordance with the laws of the State of Delawa...
+Prediction: {'task': 'ledgar', 'predicted_label_id': 47, 'predicted_label_name': 'Governing Laws', 'confidence': 0.936443030834198}
+
+Input (Unfair-ToS): By using this service, you grant us a perpetual, irrevocable, worldwide, royalty-free license to use...
+Prediction: {'task': 'unfair_tos', 'predicted_label_id': 0, 'predicted_label_name': 'Limitation of liability', 'confidence': 0.9919915795326233}
