@@ -1,0 +1,95 @@
+MY MODEL: legal-pegasus-casesumm
+
+Computing ROUGE scores...
+ROUGE Scores:
+  rouge1: 43.2714
+  rouge2: 18.5042
+  rougeL: 21.091
+  gen_len: 226.6
+
+--- Example Summaries ---
+
+Example 1:
+  Reference Summary: 1. On the merits of the motion there is no essential difference between this case and the case of the St. Louis, Iron 3lountain and Southern R. R. Co. v. The Southern IExpress Company, just decided. Reference to the master to take and state an account between the parties as to the compensation during the litigation and up to 
+its final termination relates to matters of administration not involving the merits. 2. A certificate that the transcript is a "' true, full and perfect copy from the record 
+of all the proceedings in the suit" is sufficient to give jurisdiction. 3. If the certificate is not correct, the remedy is by certiorari. 4. Where on the face of the decree 
+it appears that a case was disposed of on demurrer to the bill, the evidence on Me is not necessary for the hearing of the bill. 5. When a record has not been printed, and parties do not agree as to its contents, certiorari may be granted, reserving all questions till return.
+  Generated Summary: 1. On the face of the decree it appears that the case was disposed of on demurrer to the bill, but as the record, which is here, has not been printed in 
+full, and the parties do not agree in their statements as to what it contains, we will grant the certiorari asked for, reserving all further questions until the return is made.
+2. As the master entered a reference to him before or at the time of a decree from which the appeal was taken, the reference does not involve the merits.
+3. The reservation of power to change the rates operates only on the future and was evidently intended for the purpose of enabling the court to act in case a change should be required.
+4. If, in point of fact, a certificate is not true, it is sufficient for all the purposes of jurisdiction.
+5. To meet this view the appellee suggests diminution and asks for a certified copy of 'the evidence taken before William H. Rossington, as examiner, constituting the exhibits, depositions.
+6. and used on an argument of cause in the circuit court.'
+7. The clerk certifies the transcript sent up to be a 'true, full and perfect copy from the records of all proceedings,' and so the remedy is to supply deficiencies,
+
+Example 2:
+  Reference Summary: 1. The legislative grant of a privilege to erect, establish and construct gas works, and make and vend gas in a municipality for a term of years, does not exempt the grantees from the imposition of a license tax for the use of the privilege conferred. 2. In order to,e stablish a legislative contract to exempt from taxation, the stat. ute must be explicit and unmistakable, and without doubtful words. 3. The Constitution of the United States does not profess in all cases to protect against unjust or oppressive taxation.
+  Generated Summary: 1. The constitution of the United States does not profess in all cases to protect property from unjust or oppressive taxation by the states.
+2. That is left to the state constitutions and state laws.
+3. In the case of Louisville & N. R. Co. v. Palmes, it was said: 'This court has in the most emphatic terms and on every occasion declared that the language in which the surrender (of the right of taxation) is made must be clear and unmistakable.
+4. The covenant or enactment must distinctly express that there shall be no other or further taxation.
+5. A state cannot strip herself of this most essential power by doubtful words.
+6. It cannot by ambiguous language be deprived of its highest attribute of sovereignty.'
+7. See, also, Providence Bank vs. Billings, 4 Pet.
+8. 514, Herrick v Randolph, 13 Vt. 531, North Missouri.
+9. 40, 18 Wall.
+10. 206.
+11. There is in this case no language which attempts to exempt plaintiff from taxation, nor is there even the least remote implication of such exemption.
+12. The court of Tennessee, in its judgment, affirmed the judgment of that state's supreme court, on the grounds of a contract of exemption from tax, which was found to be in accordance with the charter of Nashville Gas-light Company, and
+
+Example 3:
+  Reference Summary: 1. Ottawa v. Cary, ante, 110, reaffirmed. 2. Unless power has been given by the legislature to a municipal corporation to grant pecuniary aid to railroad corporations, bonds issued for that purpose, and bearing evidence of the purpose on their face, are void, even in the hands of bonafide holders. 8. Corporate ratification, without authority from the legislature, cannot make a municipal bond valid, which was void when issued for want of legislative power to make it.
+  Generated Summary: 1. This is a suit brought to recover the amount of certain coupons cut from bonds issued by the city of Shreveport, Louisiana, which appear on their face to have been issued 'in aid of the Texas and Pacific Railroad Company.'
+2. In point of fact, the bonds were used to buy lands to be donated to the railroad company as a site for depots and machine-shops.
+3. The authority to purchase and hold property of all kinds relates only to such property as is needed for municipal purposes.
+4. Corporate ratification, without authority from the legislature, cannot make a municipal bond valid which was void when issued for want of legislative power to make it.    
+5. This whole subject was so fully considered in City of Ottawa v. Carey, supra, that we deem it unnecessary to discuss the subject further now.
+6. That the court would have held the bond void, if it had been called on to decide that question, is shown beyond all doubt in the case of Wilson, 29 La.
+7. Ann.
+8. 673, where the power of issue bonds, pecuniary of a much less objectionable character, was expressly denied.
+9. The court could not keep the land as against the vendor without paying for it, and it was decided that he could enforce his mortgage and vendor's privilege on the property.
+10. All that was said
+
+Base model legal-pegasus
+
+Computing ROUGE scores...
+ROUGE Scores:
+  rouge1: 42.0447
+  rouge2: 12.7534
+  rougeL: 21.5111
+  gen_len: 131.6
+
+--- Example Summaries ---
+
+Example 1:
+  Reference Summary: 1. On the merits of the motion there is no essential difference between this case and the case of the St. Louis, Iron 3lountain and Southern R. R. Co. v. The Southern IExpress Company, just decided. Reference to the master to take and state an account between the parties as to the compensation during the litigation and up to 
+its final termination relates to matters of administration not involving the merits. 2. A certificate that the transcript is a "' true, full and perfect copy from the record 
+of all the proceedings in the suit" is sufficient to give jurisdiction. 3. If the certificate is not correct, the remedy is by certiorari. 4. Where on the face of the decree 
+it appears that a case was disposed of on demurrer to the bill, the evidence on Me is not necessary for the hearing of the bill. 5. When a record has not been printed, and parties do not agree as to its contents, certiorari may be granted, reserving all questions till return.
+  Generated Summary: 1. The U.S. Attorney's Office for the Eastern District of New York today filed a motion to dismiss an appeal of a final judgment in a long-running legal 
+dispute.
+2. The case involves a dispute over the rate of compensation that a railway company was required to carry for an express company, Southern Express Co.
+3. The case is different from that of the St. Louis, I. M. & S. Ry.
+4. Company v. Southern, but the differences do not materially affect the present question.
+5. As to the decree in this case, as in that, the master 'to take and state an account between the parties' as to compensation 'until the further order or decree of this [circuit] court.'
+6. The reference is in respect to matters affecting the administration of cause, and does not involve the merits.
+7. But the reservation of power to change the rates operates only on the future and was evidently intended to enable the court to act in case a change should be required.    
+
+Example 2:
+  Reference Summary: 1. The legislative grant of a privilege to erect, establish and construct gas works, and make and vend gas in a municipality for a term of years, does not exempt the grantees from the imposition of a license tax for the use of the privilege conferred. 2. In order to,e stablish a legislative contract to exempt from taxation, the stat. ute must be explicit and unmistakable, and without doubtful words. 3. The Constitution of the United States does not profess in all cases to protect against unjust or oppressive taxation.
+  Generated Summary: 1. The U.S. Supreme Court of Tennessee has upheld a lower court's decision to throw out a $250 tax imposed by the city of Nashville on the Memphis Gas-light Company.
+2. The court held that the law violated the terms of a contract between the company and Nashville, which provided for an exemption from state taxes.
+3. The Tennessee legislature passed a law in 1849 to impose a tax on gas used in Nashville by private individuals, to be regulated by other cities in the south-western part of the state, and for public lights, such a sum as may be agreed upon by Nashville and the gas company.
+4. In the case of Louisville & N.R.
+5. Co. v. Palmes, ante, 193, we are unable to discover any reason for dissenting from the opinion of that court on that point.
+6. There is in this case no language which attempts to exempt plaintiff from taxation, nor is there even the most remote implication of such exemption.
+7. That is left to the states' constitutions and state laws.
+8. Therefore, the court concludes, there is no reason to conclude that there was no contract.
+
+Example 3:
+  Reference Summary: 1. Ottawa v. Cary, ante, 110, reaffirmed. 2. Unless power has been given by the legislature to a municipal corporation to grant pecuniary aid to railroad corporations, bonds issued for that purpose, and bearing evidence of the purpose on their face, are void, even in the hands of bonafide holders. 8. Corporate ratification, without authority from the legislature, cannot make a municipal bond valid, which was void when issued for want of legislative power to make it.
+  Generated Summary: 1. The U.S. Supreme Court ruled that the city of Shreveport, Louisiana could not keep the land as against the vendor without paying for it.
+2. The city had issued bonds for the purpose of buying land to be donated to the Texas and Pacific Railroad Company as a site for depots and machine-shops.
+3. Without legislative power to do so, the court held, all bonds issued for such a purpose are void even in the hands of bona fide holders, and this whether the people voted 
+the aid or not.

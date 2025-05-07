@@ -22,7 +22,7 @@ abstractive:
   min_length: 50                       # Minimum tokens in generated summary
   no_repeat_ngram_size: 2              # Prevents repetition of phrases
   early_stopping: true                 # Stop generation when all beams finished
-  path_to_finetuned_model: "./models/legal-pegasus-casesumm"
+  # path_to_finetuned_model: "./models/legal-pegasus-casesumm"
 
 # Fine-tuning Configuration
 fine_tuning:

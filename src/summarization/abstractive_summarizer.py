@@ -23,7 +23,7 @@ def load_config(config_path='config/summarization.yaml'):
             'dataset_split': 'train',
             'text_column': 'opinion',
             'summary_column': 'syllabus',
-            'base_model': 'google/pegasus-cnn_dailymail',
+            'base_model': 'nsi319/legal-pegasus',
             'max_input_length': 1024,
             'max_target_length': 256,
             'batch_size': 4,

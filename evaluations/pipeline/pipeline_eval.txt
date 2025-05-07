@@ -1,0 +1,14 @@
+=== Results ===
+
+CLASSIFICATION:
+  Result: LABEL_0
+
+SUMMARY:
+  Length: 76 words
+  1. This Agreement shall be governed by and construed in accordance with the laws of the State of Delaware.
+2. The parties submit to the exclusive jurisdiction of the courts located in New Castle County, Delaware for resolution of any disputes arising out of or relating to this Agreement.
+3. In the event that any provision of this Agreement is found to be invalid or unenforceable, the remaining provisions shall remain in full force and effect.
+
+SIMPLIFIED SUMMARY:
+  Length: 29 words
+  The parties submit to the exclusive jurisdiction of the courts located in New Castle County, Delaware for resolution of any disputes arising out of or relating to this Agreement.

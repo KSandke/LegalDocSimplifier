@@ -38,7 +38,7 @@ import os
 import argparse
 import sys
 import torch
-from transformers import pipeline
+from transformers import pipeline, AutoConfig
 
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -50,11 +50,26 @@ from summarization.abstractive_summarizer import post_process_summary
 def summarize_text(text, model_id="KSandke/legal-summarizer"):
     """Summarize text using the abstractive summarizer from Hugging Face Hub"""
     try:
+        model_kwargs = {}
+        try:
+            config = AutoConfig.from_pretrained(model_id, trust_remote_code=True)
+            if hasattr(config, 'decoder_start_token_id') and config.decoder_start_token_id is not None:
+                model_kwargs['decoder_start_token_id'] = config.decoder_start_token_id
+            elif hasattr(config, 'bos_token_id') and config.bos_token_id is not None:
+                model_kwargs['decoder_start_token_id'] = config.bos_token_id
+            elif model_id == "KSandke/legal-summarizer" and hasattr(config, 'pad_token_id') and config.pad_token_id is not None:
+                # For many Pegasus models, decoder_start_token_id = pad_token_id
+                model_kwargs['decoder_start_token_id'] = config.pad_token_id
+                print(f"Info: Using pad_token_id ({config.pad_token_id}) as decoder_start_token_id for {model_id}")
+        except Exception as e_config:
+            print(f"Warning: Could not load AutoConfig for {model_id} to find decoder_start_token_id: {e_config}")
+
         # Create summarization pipeline
         summarizer = pipeline(
-            "summarization", 
+            "summarization",
             model=model_id,
-            device=0 if torch.cuda.is_available() else -1
+            device=0 if torch.cuda.is_available() else -1,
+            model_kwargs=model_kwargs if model_kwargs else None # Pass if not empty
         )
         
         # Generate summary
@@ -72,10 +87,14 @@ def summarize_text(text, model_id="KSandke/legal-summarizer"):
         return summary
     
     except Exception as e:
-        print(f"Error in summarization: {str(e)}")
-        print("Falling back to base model...")
+        print(f"Error in summarization with {model_id}: {str(e)}")
         # Fallback to a public model if the custom one fails
-        return summarize_text(text, "facebook/bart-large-cnn") if model_id != "facebook/bart-large-cnn" else "Error: Could not generate summary."
+        if model_id != "facebook/bart-large-cnn":
+            print(f"Falling back to facebook/bart-large-cnn from {model_id}...")
+            return summarize_text(text, "facebook/bart-large-cnn")
+        else:
+            print(f"Error: Could not generate summary even with fallback model {model_id}.")
+            return "Error: Could not generate summary."
 
 
 def simplify_text(text, model_id="KSandke/legal-simplifier"):
