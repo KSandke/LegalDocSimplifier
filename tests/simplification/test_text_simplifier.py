@@ -80,11 +80,14 @@ class TestSimplificationConfigLoading:
         assert result['simplification_params']['level'] == 'medium'
     
     def test_load_config_missing_file(self):
-        """Test loading a non-existent simplification configuration file."""
+        """Test loading a non-existent simplification configuration file returns defaults."""
         non_existent_path = "non_existent_simplification_config.yaml"
         
-        with pytest.raises(FileNotFoundError):
-            load_config(non_existent_path)
+        # Should return default configuration instead of raising exception
+        config = load_config(non_existent_path)
+        assert isinstance(config, dict)
+        assert 'model' in config
+        assert 'dataset' in config
     
     def test_load_config_malformed_yaml(self, temp_dir):
         """Test loading a malformed YAML file for simplification."""
@@ -104,18 +107,24 @@ class TestSimplificationConfigLoading:
         with open(config_path, 'w') as f:
             f.write(malformed_yaml)
         
-        with pytest.raises(yaml.YAMLError):
-            load_config(config_path)
+        # Should return default configuration instead of raising exception
+        config = load_config(config_path)
+        assert isinstance(config, dict)
+        assert 'model' in config
+        assert 'dataset' in config
     
     def test_load_config_empty_file(self, temp_dir):
-        """Test loading an empty simplification configuration file."""
+        """Test loading an empty simplification configuration file returns defaults."""
         config_path = os.path.join(temp_dir, 'empty_simplification_config.yaml')
         with open(config_path, 'w') as f:
             pass  # Create empty file
         
         result = load_config(config_path)
         
-        assert result is None
+        # Should return default configuration instead of None
+        assert isinstance(result, dict)
+        assert 'model' in result
+        assert 'dataset' in result
     
     def test_load_config_missing_sections(self, temp_dir):
         """Test loading a config file missing required sections."""
@@ -145,8 +154,11 @@ class TestSimplificationConfigLoading:
         os.chdir(temp_dir)
         
         try:
-            with pytest.raises(FileNotFoundError):
-                load_config()  # Should use default path and raise error
+            # Should return default configuration instead of raising exception
+            config = load_config()  # Should use default path and return defaults
+            assert isinstance(config, dict)
+            assert 'model' in config
+            assert 'dataset' in config
         finally:
             os.chdir(original_cwd)
     

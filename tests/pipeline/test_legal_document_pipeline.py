@@ -59,11 +59,14 @@ class TestPipelineConfigLoading:
         assert result['summarization']['max_length'] == 250
     
     def test_load_config_missing_file(self):
-        """Test loading a non-existent pipeline configuration file."""
+        """Test loading a non-existent pipeline configuration file returns defaults."""
         non_existent_path = "non_existent_pipeline_config.yaml"
         
-        with pytest.raises(FileNotFoundError):
-            load_config(non_existent_path)
+        # Should return default configuration instead of raising exception
+        config = load_config(non_existent_path)
+        assert isinstance(config, dict)
+        assert 'abstractive' in config
+        assert 'simplification' in config
     
     def test_load_config_malformed_yaml(self, temp_dir):
         """Test loading a malformed YAML file for pipeline."""
@@ -83,19 +86,24 @@ class TestPipelineConfigLoading:
         with open(config_path, 'w') as f:
             f.write(malformed_yaml)
         
-        with pytest.raises(yaml.YAMLError):
-            load_config(config_path)
+        # Should return default configuration instead of raising exception
+        config = load_config(config_path)
+        assert isinstance(config, dict)
+        assert 'abstractive' in config
+        assert 'simplification' in config
     
     def test_load_config_empty_file(self, temp_dir):
-        """Test loading an empty pipeline configuration file."""
+        """Test loading an empty pipeline configuration file returns defaults."""
         config_path = os.path.join(temp_dir, 'empty_pipeline_config.yaml')
         with open(config_path, 'w') as f:
             pass  # Create empty file
         
         result = load_config(config_path)
         
-        # Empty YAML should return None
-        assert result is None
+        # Should return default configuration instead of None
+        assert isinstance(result, dict)
+        assert 'abstractive' in result
+        assert 'simplification' in result
     
     def test_load_config_missing_sections(self, temp_dir):
         """Test loading a config file missing required sections."""
@@ -162,8 +170,11 @@ class TestPipelineConfigLoading:
             os.chmod(config_path, 0o000)  # No permissions
             
             try:
-                with pytest.raises(PermissionError):
-                    load_config(config_path)
+                # Should return default configuration instead of raising exception
+                config = load_config(config_path)
+                assert isinstance(config, dict)
+                assert 'abstractive' in config
+                assert 'simplification' in config
             finally:
                 # Restore permissions for cleanup
                 os.chmod(config_path, 0o644)

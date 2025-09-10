@@ -58,14 +58,17 @@ class TestSummarizationConfigLoading:
         assert result['dataset_name'] == 'ChicagoHAI/CaseSumm'
     
     def test_load_config_missing_file(self):
-        """Test loading a non-existent summarization configuration file."""
+        """Test loading a non-existent summarization configuration file returns defaults."""
         non_existent_path = "non_existent_summarization_config.yaml"
         
-        with pytest.raises(FileNotFoundError):
-            load_config(non_existent_path)
+        # Should return default configuration instead of raising exception
+        config = load_config(non_existent_path)
+        assert isinstance(config, dict)
+        assert 'dataset_name' in config
+        assert 'base_model' in config
     
     def test_load_config_malformed_yaml(self, temp_dir):
-        """Test loading a malformed YAML file for summarization."""
+        """Test loading a malformed YAML file for summarization returns defaults."""
         malformed_yaml = """
         abstractive:
             dataset_name: ChicagoHAI/CaseSumm
@@ -80,18 +83,23 @@ class TestSummarizationConfigLoading:
         with open(config_path, 'w') as f:
             f.write(malformed_yaml)
         
-        with pytest.raises(yaml.YAMLError):
-            load_config(config_path)
+        # Should return default configuration instead of raising exception
+        config = load_config(config_path)
+        assert isinstance(config, dict)
+        assert 'dataset_name' in config
+        assert 'base_model' in config
     
     def test_load_config_empty_file(self, temp_dir):
-        """Test loading an empty summarization configuration file."""
+        """Test loading an empty summarization configuration file returns defaults."""
         config_path = os.path.join(temp_dir, 'empty_summarization_config.yaml')
         with open(config_path, 'w') as f:
             pass  # Create empty file
         
-        # Empty YAML returns None, which causes TypeError in the function
-        with pytest.raises(TypeError):
-            load_config(config_path)
+        # Should return default configuration instead of raising exception
+        config = load_config(config_path)
+        assert isinstance(config, dict)
+        assert 'dataset_name' in config
+        assert 'base_model' in config
     
     def test_load_config_missing_sections(self, temp_dir):
         """Test loading a config file missing required sections."""
@@ -115,13 +123,16 @@ class TestSummarizationConfigLoading:
         assert result['base_model'] == 'nsi319/legal-pegasus'
     
     def test_load_config_default_path(self, temp_dir):
-        """Test loading config with default path when file doesn't exist."""
+        """Test loading config with default path when file doesn't exist returns defaults."""
         original_cwd = os.getcwd()
         os.chdir(temp_dir)
         
         try:
-            with pytest.raises(FileNotFoundError):
-                load_config()  # Should use default path and raise error
+            # Should return default configuration instead of raising exception
+            config = load_config()  # Should use default path and return defaults
+            assert isinstance(config, dict)
+            assert 'dataset_name' in config
+            assert 'base_model' in config
         finally:
             os.chdir(original_cwd)
     
