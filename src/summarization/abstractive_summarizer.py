@@ -9,6 +9,26 @@ import numpy as np
 import traceback
 from rouge_score import rouge_scorer, scoring
 
+# NLTK data management with lazy loading
+_nltk_initialized = False
+
+def _ensure_nltk_data():
+    """Lazy initialization of NLTK data to avoid import-time execution."""
+    global _nltk_initialized
+    if not _nltk_initialized:
+        try:
+            nltk.data.find('tokenizers/punkt')
+        except LookupError: 
+            print("Downloading NLTK sentence tokenizer data...")
+            try:
+                nltk.download('punkt', quiet=True) 
+                print("NLTK data downloaded.")
+            except Exception as e_download:
+                print(f"Error downloading NLTK data: {e_download}")
+                print("Please try downloading manually: python -m nltk.downloader punkt")
+                raise
+        _nltk_initialized = True
+
 # --- Configuration Loading ---
 def load_config(config_path='config/summarization.yaml'):
     """Loads abstractive summarization settings from config file."""
@@ -52,6 +72,7 @@ def preprocess_function(examples, tokenizer, max_input_length, max_target_length
 # --- Post-processing for better summaries ---
 def post_process_summary(text):
     """Improves generated summaries by fixing formatting and addressing truncation issues."""
+    _ensure_nltk_data()  # Ensure NLTK data is available
     # Replace <n> tags with newlines
     text = text.replace("<n>", "\n")
     
@@ -112,6 +133,7 @@ def post_process_summary(text):
 # --- Evaluation using rouge-score ---
 def compute_metrics(decoded_preds, decoded_labels):
     """Calculates ROUGE scores between generated and reference summaries."""
+    _ensure_nltk_data()  # Ensure NLTK data is available
     # Initialize scorer for key ROUGE metrics
     scorer = rouge_scorer.RougeScorer(['rouge1', 'rouge2', 'rougeL'], use_stemmer=True)
 

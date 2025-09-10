@@ -18,19 +18,27 @@ def load_config(config_path='config/summarization.yaml'):
         config = yaml.safe_load(f)
     return config
 
-# Download NLTK dependencies if needed
-try:
-    nltk.data.find('tokenizers/punkt')
-    nltk.data.find('tokenizers/punkt_tab') 
-except LookupError: 
-    print("Downloading NLTK sentence tokenizer data...")
-    try:
-        nltk.download('punkt', quiet=True) 
-        nltk.download('punkt_tab', quiet=True) 
-        print("NLTK data downloaded.")
-    except Exception as e_download:
-        print(f"Error downloading NLTK data: {e_download}")
-        print("Please try downloading manually: python -m nltk.downloader punkt punkt_tab")
+# NLTK data management with lazy loading
+_nltk_initialized = False
+
+def _ensure_nltk_data():
+    """Lazy initialization of NLTK data to avoid import-time execution."""
+    global _nltk_initialized
+    if not _nltk_initialized:
+        try:
+            nltk.data.find('tokenizers/punkt')
+            nltk.data.find('tokenizers/punkt_tab') 
+        except LookupError: 
+            print("Downloading NLTK sentence tokenizer data...")
+            try:
+                nltk.download('punkt', quiet=True) 
+                nltk.download('punkt_tab', quiet=True) 
+                print("NLTK data downloaded.")
+            except Exception as e_download:
+                print(f"Error downloading NLTK data: {e_download}")
+                print("Please try downloading manually: python -m nltk.downloader punkt punkt_tab")
+                raise
+        _nltk_initialized = True
 
 # Constants (fallbacks if config is unavailable)
 STANDARDIZED_DATA_DIR = 'data/standardized'
@@ -43,6 +51,7 @@ def clean_text(text):
 
 def get_sentences(text, min_length=5):
     """Splits text into sentences and filters out very short ones."""
+    _ensure_nltk_data()  # Ensure NLTK data is available
     try:
         sentences = nltk.sent_tokenize(text)
         # Keep only sentences with sufficient words
