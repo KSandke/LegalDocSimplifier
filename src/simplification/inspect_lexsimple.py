@@ -3,13 +3,36 @@ import yaml
 import os
 from datasets import load_dataset
 
+# Import centralized configuration manager
+try:
+    from ..config_manager import ConfigManager
+except ImportError:
+    # Fallback for when running as script or in tests
+    import sys
+    import os
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from config_manager import ConfigManager
+
 def load_config(config_path='config/simplification.yaml'):
     """Load configuration from YAML file"""
-    if not os.path.exists(config_path):
-        raise FileNotFoundError(f"Configuration file not found at {config_path}")
-    with open(config_path, 'r') as f:
-        config = yaml.safe_load(f)
-    return config
+    try:
+        # Use centralized config manager
+        return ConfigManager.load_config(config_path)
+    except Exception as e:
+        print(f"Warning: Could not load config from {config_path}: {e}")
+        print("Using default configuration...")
+        return {
+            'model': {
+                'base_model': 't5-small',
+                'simplification_model_name': 'lexsimple_model'
+            },
+            'dataset': {
+                'name': 'turk'
+            },
+            'paths': {
+                'output_models': 'models/simplification/{model_name}'
+            }
+        }
 
 def main():
     # Load configuration and get dataset name

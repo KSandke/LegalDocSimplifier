@@ -13,13 +13,59 @@ import evaluate
 import numpy as np
 import pandas as pd
 
+# Import centralized configuration manager
+try:
+    from ..config_manager import ConfigManager
+except ImportError:
+    # Fallback for when running as script or in tests
+    import sys
+    import os
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from config_manager import ConfigManager
+
 def load_config(config_path='config/simplification.yaml'):
     """Load configuration from YAML file"""
-    if not os.path.exists(config_path):
-        raise FileNotFoundError(f"Configuration file not found at {config_path}")
-    with open(config_path, 'r') as f:
-        config = yaml.safe_load(f)
-    return config
+    try:
+        # Use centralized config manager
+        return ConfigManager.load_config(config_path)
+    except Exception as e:
+        # Provide defaults if config cannot be loaded
+        print(f"Warning: Could not load config from {config_path}: {e}")
+        print("Using default configuration...")
+        return {
+            'model': {
+                'base_model': 't5-small',
+                'simplification_model_name': 'lexsimple_model'
+            },
+            'dataset': {
+                'name': 'turk'
+            },
+            'paths': {
+                'output_models': 'models/simplification/{model_name}'
+            },
+            'training': {
+                'max_input_length': 512,
+                'max_target_length': 256,
+                'batch_size': 8,
+                'eval_batch_size': 8,
+                'epochs': 3,
+                'learning_rate': 5e-5,
+                'weight_decay': 0.01,
+                'warmup_steps': 100,
+                'gradient_accumulation_steps': 1,
+                'evaluation_strategy': 'steps',
+                'fp16': False
+            },
+            'simplification_params': {
+                'generation_params': {
+                    'num_beams': 4,
+                    'length_penalty': 1.0,
+                    'early_stopping': True,
+                    'do_sample': False,
+                    'temperature': 1.0
+                }
+            }
+        }
 
 def load_simplification_dataset(dataset_name):
     """Load dataset and create unified train/val/test splits"""

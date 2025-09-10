@@ -13,13 +13,45 @@ from classification.multitask_inference import predict as classify_text
 from summarization.abstractive_summarizer import post_process_summary
 
 
+# Import centralized configuration manager
+try:
+    from ..config_manager import ConfigManager
+except ImportError:
+    # Fallback for when running as script or in tests
+    import sys
+    import os
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from config_manager import ConfigManager
+
 def load_config(config_path):
     """Load configuration from YAML file"""
-    if not os.path.exists(config_path):
-        raise FileNotFoundError(f"Configuration file not found at {config_path}")
-    with open(config_path, 'r') as f:
-        config = yaml.safe_load(f)
-    return config
+    try:
+        # Use centralized config manager
+        return ConfigManager.load_config(config_path)
+    except Exception as e:
+        # Provide defaults if config cannot be loaded
+        print(f"Warning: Could not load config from {config_path}: {e}")
+        print("Using default configuration...")
+        return {
+            'abstractive': {
+                'base_model': 'nsi319/legal-pegasus',
+                'max_input_length': 1024,
+                'max_target_length': 256,
+                'min_length': 50,
+                'num_beams': 5,
+                'length_penalty': 2.0,
+                'no_repeat_ngram_size': 3,
+                'early_stopping': True
+            },
+            'simplification': {
+                'base_model': 't5-small',
+                'max_input_length': 512,
+                'max_target_length': 256,
+                'num_beams': 4,
+                'length_penalty': 1.0,
+                'early_stopping': True
+            }
+        }
 
 
 def summarize_text(text, config=None):

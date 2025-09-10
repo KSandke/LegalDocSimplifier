@@ -15,16 +15,21 @@ from tqdm.auto import tqdm
 import random
 import yaml
 
+# Import centralized configuration manager
+try:
+    from ..config_manager import ConfigManager
+except ImportError:
+    # Fallback for when running as script or in tests
+    import sys
+    import os
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from config_manager import ConfigManager
+
 def load_config(config_path="config/classification.yaml"):
     """Loads the YAML configuration file."""
     try:
-        with open(config_path, 'r') as f:
-            config = yaml.safe_load(f)
-        print(f"Configuration loaded successfully from {config_path}")
-        return config
-    except FileNotFoundError:
-        print(f"Error: Configuration file not found at {config_path}")
-        return None
+        # Use centralized config manager
+        return ConfigManager.load_config(config_path)
     except Exception as e:
         print(f"Error loading configuration from {config_path}: {e}")
         return None

@@ -29,15 +29,27 @@ def _ensure_nltk_data():
                 raise
         _nltk_initialized = True
 
+# Import centralized configuration manager
+try:
+    from ..config_manager import ConfigManager
+except ImportError:
+    # Fallback for when running as script or in tests
+    import sys
+    import os
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from config_manager import ConfigManager
+
 # --- Configuration Loading ---
 def load_config(config_path='config/summarization.yaml'):
     """Loads abstractive summarization settings from config file."""
-    if not os.path.exists(config_path):
-        raise FileNotFoundError(f"Configuration file not found at {config_path}")
-    with open(config_path, 'r') as f:
-        config = yaml.safe_load(f)
-    # Provide defaults if config section missing
-    if 'abstractive' not in config:
+    try:
+        # Use centralized config manager
+        config = ConfigManager.load_config(config_path)
+        return config.get('abstractive', {})
+    except Exception as e:
+        # Provide defaults if config section missing or error occurs
+        print(f"Warning: Could not load config from {config_path}: {e}")
+        print("Using default configuration...")
         return {
             'dataset_name': 'ChicagoHAI/CaseSumm',
             'dataset_split': 'train',
@@ -53,7 +65,6 @@ def load_config(config_path='config/summarization.yaml'):
             'no_repeat_ngram_size': 3,
             'early_stopping': True
         }
-    return config['abstractive']
 
 # --- Data Preprocessing ---
 def preprocess_function(examples, tokenizer, max_input_length, max_target_length, text_column, summary_column):

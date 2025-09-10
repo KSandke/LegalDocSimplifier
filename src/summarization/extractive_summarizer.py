@@ -9,14 +9,33 @@ import yaml
 import os
 import re
 
+# Import centralized configuration manager
+try:
+    from ..config_manager import ConfigManager
+except ImportError:
+    # Fallback for when running as script or in tests
+    import sys
+    import os
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from config_manager import ConfigManager
+
 # --- Configuration Loading ---
 def load_config(config_path='config/summarization.yaml'):
     """Loads extractive summarization settings from config file."""
-    if not os.path.exists(config_path):
-        raise FileNotFoundError(f"Configuration file not found at {config_path}")
-    with open(config_path, 'r') as f:
-        config = yaml.safe_load(f)
-    return config
+    try:
+        # Use centralized config manager
+        config = ConfigManager.load_config(config_path)
+        return config.get('extractive', {})
+    except Exception as e:
+        # Provide defaults if config section missing or error occurs
+        print(f"Warning: Could not load config from {config_path}: {e}")
+        print("Using default configuration...")
+        return {
+            'dataset_name': 'scotus_processor',
+            'dataset_split': 'test',
+            'num_summary_sentences': 5,
+            'min_sentence_length': 5
+        }
 
 # NLTK data management with lazy loading
 _nltk_initialized = False

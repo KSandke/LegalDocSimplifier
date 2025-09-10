@@ -2,13 +2,31 @@ import os
 import datasets
 import yaml
 
+# Import centralized configuration manager
+try:
+    from ..config_manager import ConfigManager
+except ImportError:
+    # Fallback for when running as script or in tests
+    import sys
+    import os
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from config_manager import ConfigManager
+
 def load_config(config_path='config/summarization.yaml'):
     """Loads configuration from a YAML file."""
-    if not os.path.exists(config_path):
-        raise FileNotFoundError(f"Configuration file not found at {config_path}")
-    with open(config_path, 'r') as f:
-        config = yaml.safe_load(f)
-    return config['fine_tuning']
+    try:
+        # Use centralized config manager
+        config = ConfigManager.load_config(config_path)
+        return config.get('fine_tuning', {})
+    except Exception as e:
+        print(f"Warning: Could not load config from {config_path}: {e}")
+        print("Using default configuration...")
+        return {
+            'dataset_name': 'scotus',
+            'text_column': 'text',
+            'summary_column': 'summary',
+            'max_examples': 100
+        }
 
 def main():
     # Load configuration

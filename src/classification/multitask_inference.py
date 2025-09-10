@@ -31,20 +31,15 @@ How to Use in Other Code:
    one of "scotus", "ledgar", or "unfair_tos".
 """
 
-# Helper Function to Load Config
-def load_config(config_path="config/classification.yaml"):
-    """Loads the YAML configuration file."""
-    try:
-        with open(config_path, 'r') as f:
-            config = yaml.safe_load(f)
-        print(f"Configuration loaded successfully from {config_path}")
-        return config
-    except FileNotFoundError:
-        print(f"Error: Configuration file not found at {config_path}")
-        return None
-    except Exception as e:
-        print(f"Error loading configuration from {config_path}: {e}")
-        return None
+# Import centralized configuration manager
+try:
+    from ..config_manager import ConfigManager
+except ImportError:
+    # Fallback for when running as script or in tests
+    import sys
+    import os
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from config_manager import ConfigManager
 
 # LegalMultiTaskModel Definition
 class LegalMultiTaskModel(nn.Module):
@@ -90,10 +85,8 @@ class ModelManager:
     def _load_model(self):
         """Load the model and all required components."""
         try:
-            # Load configuration
-            self._config = load_config()
-            if not self._config:
-                raise RuntimeError("Could not load configuration file")
+            # Load configuration using centralized manager
+            self._config = ConfigManager.load_default_config('classification')
             
             paths_cfg = self._config.get('paths', {})
             model_cfg = self._config.get('model', {}).get('multi_task_classification', {})
@@ -248,18 +241,17 @@ class ModelManager:
         if not self._initialized:
             # Try to load just the config to get task labels
             try:
-                config = load_config()
-                if config:
-                    model_cfg = config.get('model', {}).get('multi_task_classification', {})
-                    model_save_name = model_cfg.get('name', 'multitask_legal_model_standardized')
-                    output_dir_template = config.get('paths', {}).get('output_dir_template', 'models/classification/{model_name}')
-                    model_dir = output_dir_template.format(model_name=model_save_name)
-                    task_labels_path = os.path.join(model_dir, "task_labels.json")
-                    
-                    if os.path.exists(task_labels_path):
-                        with open(task_labels_path, "r") as f:
-                            task_labels = json.load(f)
-                        return list(task_labels.keys())
+                config = ConfigManager.load_default_config('classification')
+                model_cfg = config.get('model', {}).get('multi_task_classification', {})
+                model_save_name = model_cfg.get('name', 'multitask_legal_model_standardized')
+                output_dir_template = config.get('paths', {}).get('output_dir_template', 'models/classification/{model_name}')
+                model_dir = output_dir_template.format(model_name=model_save_name)
+                task_labels_path = os.path.join(model_dir, "task_labels.json")
+                
+                if os.path.exists(task_labels_path):
+                    with open(task_labels_path, "r") as f:
+                        task_labels = json.load(f)
+                    return list(task_labels.keys())
             except Exception:
                 pass
             return []
