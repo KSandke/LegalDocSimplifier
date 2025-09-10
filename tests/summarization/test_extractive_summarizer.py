@@ -45,8 +45,8 @@ class TestExtractiveSummarizerForwardPass:
         """Test sentence tokenization functionality."""
         from summarization.extractive_summarizer import get_sentences
         
-        # Test with normal text
-        input_text = "This is the first sentence. This is the second sentence. This is the third sentence."
+        # Test with normal text (each sentence has more than 5 words)
+        input_text = "This is the first sentence here. This is the second sentence here. This is the third sentence here."
         result = get_sentences(input_text)
         
         assert isinstance(result, list)
@@ -61,13 +61,13 @@ class TestExtractiveSummarizerForwardPass:
         from summarization.extractive_summarizer import get_sentences
         
         # Test with short sentences
-        input_text = "Hi. This is a longer sentence. OK. Another longer sentence."
+        input_text = "Hi. This is a longer sentence here. OK. Another much longer sentence here."
         result = get_sentences(input_text, min_length=5)
         
         assert isinstance(result, list)
         assert len(result) == 2  # Only longer sentences should remain
         assert "longer sentence" in result[0]
-        assert "Another longer sentence" in result[1]
+        assert "Another much longer sentence" in result[1]
     
     def test_get_sentences_empty_text(self):
         """Test sentence tokenization with empty text."""

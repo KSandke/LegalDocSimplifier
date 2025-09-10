@@ -161,14 +161,14 @@ class TestAbstractiveSummarizerForwardPass:
         # Mock tokenizer
         mock_tokenizer = Mock()
         mock_tokenizer.name_or_path = "facebook/bart-base"
-        mock_tokenizer.return_value = {
-            'input_ids': [[1, 2, 3, 4, 5]],
-            'attention_mask': [[1, 1, 1, 1, 1]]
-        }
-        mock_tokenizer.side_effect = lambda x, **kwargs: {
-            'input_ids': [[1, 2, 3, 4, 5]],
-            'attention_mask': [[1, 1, 1, 1, 1]]
-        }
+        
+        def mock_tokenize(*args, **kwargs):
+            return {
+                'input_ids': [[1, 2, 3, 4, 5]],
+                'attention_mask': [[1, 1, 1, 1, 1]]
+            }
+        
+        mock_tokenizer.side_effect = mock_tokenize
         
         # Test data
         examples = {
@@ -194,14 +194,14 @@ class TestAbstractiveSummarizerForwardPass:
         # Mock T5 tokenizer
         mock_tokenizer = Mock()
         mock_tokenizer.name_or_path = "t5-small"
-        mock_tokenizer.return_value = {
-            'input_ids': [[1, 2, 3, 4, 5]],
-            'attention_mask': [[1, 1, 1, 1, 1]]
-        }
-        mock_tokenizer.side_effect = lambda x, **kwargs: {
-            'input_ids': [[1, 2, 3, 4, 5]],
-            'attention_mask': [[1, 1, 1, 1, 1]]
-        }
+        
+        def mock_tokenize(*args, **kwargs):
+            return {
+                'input_ids': [[1, 2, 3, 4, 5]],
+                'attention_mask': [[1, 1, 1, 1, 1]]
+            }
+        
+        mock_tokenizer.side_effect = mock_tokenize
         
         # Test data
         examples = {
@@ -227,14 +227,14 @@ class TestAbstractiveSummarizerForwardPass:
         # Mock tokenizer
         mock_tokenizer = Mock()
         mock_tokenizer.name_or_path = "facebook/bart-base"
-        mock_tokenizer.return_value = {
-            'input_ids': [[1, 2, 3, 4, 5], [6, 7, 8, 9, 10]],
-            'attention_mask': [[1, 1, 1, 1, 1], [1, 1, 1, 1, 1]]
-        }
-        mock_tokenizer.side_effect = lambda x, **kwargs: {
-            'input_ids': [[1, 2, 3, 4, 5], [6, 7, 8, 9, 10]],
-            'attention_mask': [[1, 1, 1, 1, 1], [1, 1, 1, 1, 1]]
-        }
+        
+        def mock_tokenize(*args, **kwargs):
+            return {
+                'input_ids': [[1, 2, 3, 4, 5], [6, 7, 8, 9, 10]],
+                'attention_mask': [[1, 1, 1, 1, 1], [1, 1, 1, 1, 1]]
+            }
+        
+        mock_tokenizer.side_effect = mock_tokenize
         
         # Test data
         examples = {
