@@ -66,156 +66,246 @@ class LegalMultiTaskModel(nn.Module):
             return self.task_classifiers[task_name](pooled_output)
         return {task: classifier(pooled_output) for task, classifier in self.task_classifiers.items()}
 
-# Load Configuration
-config = load_config()
-if not config:
-    print("Exiting: Could not load config.")
-    exit()
-
-paths_cfg = config.get('paths', {})
-model_cfg = config.get('model', {}).get('multi_task_classification', {})
-
-# Get model details from config
-MODEL_SAVE_NAME = model_cfg.get('name', 'multitask_legal_model_standardized')
-BASE_MODEL_NAME = model_cfg.get('base_model', 'nlpaueb/legal-bert-base-uncased')
-OUTPUT_DIR_TEMPLATE = paths_cfg.get('output_dir_template', 'models/classification/{model_name}')
-
-# Construct the actual model directory
-model_dir = OUTPUT_DIR_TEMPLATE.format(model_name=MODEL_SAVE_NAME)
-task_labels_path = os.path.join(model_dir, "task_labels.json")
-model_weights_path = os.path.join(model_dir, "model.pt")
-
-print(f"Attempting to load model from: {model_dir}")
-
-# Load Task Label Counts (Number of Classes)
-try:
-    with open(task_labels_path, "r") as f:
-        task_num_labels = json.load(f) 
-    print(f"Loaded task label counts: {task_num_labels}")
-except Exception as e:
-     print(f"Error loading task labels JSON: {e}")
-     exit()
-
-# Build id2label mapping by loading original dataset features
-print("Building id2label mappings from original datasets...")
-task_to_id2label = {}
-raw_data_dir = paths_cfg.get('raw_data_dir', 'data/processed')
-
-for task_name in task_num_labels.keys():
-    try:
-        original_dataset_path = os.path.join(raw_data_dir, f"{task_name}_dataset")
-        if not os.path.exists(original_dataset_path):
-             print(f"  Warning: Original dataset not found for task '{task_name}' at {original_dataset_path}. Cannot get label names.")
-             continue
-             
-        temp_dataset = load_from_disk(original_dataset_path)
-        features = temp_dataset['train'].features
-        
-        label_feature_name = None
-        if 'label' in features:
-            label_feature_name = 'label'
-        elif 'labels' in features:
-            label_feature_name = 'labels'
+# Model Manager Class for Lazy Loading
+class ModelManager:
+    """Manages the multi-task model with lazy loading to avoid import-time execution."""
+    
+    def __init__(self):
+        self._model = None
+        self._tokenizer = None
+        self._task_labels = None
+        self._task_to_id2label = None
+        self._device = None
+        self._initialized = False
+        self._config = None
+        self._model_dir = None
+        self._base_model_name = None
+    
+    def _ensure_initialized(self):
+        """Lazy initialization - only loads model when first needed."""
+        if not self._initialized:
+            self._load_model()
+            self._initialized = True
+    
+    def _load_model(self):
+        """Load the model and all required components."""
+        try:
+            # Load configuration
+            self._config = load_config()
+            if not self._config:
+                raise RuntimeError("Could not load configuration file")
             
-        if label_feature_name:
-            label_feature = features[label_feature_name]
-            if isinstance(label_feature, datasets.Sequence):
-                inner_feature = label_feature.feature 
-                if hasattr(inner_feature, 'names'):
-                    task_to_id2label[task_name] = {i: name for i, name in enumerate(inner_feature.names)}
-                    print(f"  Loaded {len(inner_feature.names)} labels for task '{task_name}' (from Sequence)")
-            elif hasattr(label_feature, 'names'):
-                 task_to_id2label[task_name] = {i: name for i, name in enumerate(label_feature.names)}
-                 print(f"  Loaded {len(label_feature.names)} labels for task '{task_name}'")
+            paths_cfg = self._config.get('paths', {})
+            model_cfg = self._config.get('model', {}).get('multi_task_classification', {})
+            
+            # Get model details from config
+            model_save_name = model_cfg.get('name', 'multitask_legal_model_standardized')
+            self._base_model_name = model_cfg.get('base_model', 'nlpaueb/legal-bert-base-uncased')
+            output_dir_template = paths_cfg.get('output_dir_template', 'models/classification/{model_name}')
+            
+            # Construct the actual model directory
+            self._model_dir = output_dir_template.format(model_name=model_save_name)
+            task_labels_path = os.path.join(self._model_dir, "task_labels.json")
+            model_weights_path = os.path.join(self._model_dir, "model.pt")
+            
+            print(f"Attempting to load model from: {self._model_dir}")
+            
+            # Load Task Label Counts (Number of Classes)
+            try:
+                with open(task_labels_path, "r") as f:
+                    self._task_labels = json.load(f) 
+                print(f"Loaded task label counts: {self._task_labels}")
+            except Exception as e:
+                raise RuntimeError(f"Error loading task labels JSON: {e}")
+            
+            # Build id2label mapping by loading original dataset features
+            print("Building id2label mappings from original datasets...")
+            self._task_to_id2label = {}
+            raw_data_dir = paths_cfg.get('raw_data_dir', 'data/processed')
+            
+            for task_name in self._task_labels.keys():
+                try:
+                    original_dataset_path = os.path.join(raw_data_dir, f"{task_name}_dataset")
+                    if not os.path.exists(original_dataset_path):
+                        print(f"  Warning: Original dataset not found for task '{task_name}' at {original_dataset_path}. Cannot get label names.")
+                        continue
+                        
+                    temp_dataset = load_from_disk(original_dataset_path)
+                    features = temp_dataset['train'].features
+                    
+                    label_feature_name = None
+                    if 'label' in features:
+                        label_feature_name = 'label'
+                    elif 'labels' in features:
+                        label_feature_name = 'labels'
+                        
+                    if label_feature_name:
+                        label_feature = features[label_feature_name]
+                        if isinstance(label_feature, datasets.Sequence):
+                            inner_feature = label_feature.feature 
+                            if hasattr(inner_feature, 'names'):
+                                self._task_to_id2label[task_name] = {i: name for i, name in enumerate(inner_feature.names)}
+                                print(f"  Loaded {len(inner_feature.names)} labels for task '{task_name}' (from Sequence)")
+                        elif hasattr(label_feature, 'names'):
+                            self._task_to_id2label[task_name] = {i: name for i, name in enumerate(label_feature.names)}
+                            print(f"  Loaded {len(label_feature.names)} labels for task '{task_name}'")
+                        else:
+                            print(f"  Warning: Label feature found for '{task_name}', but it has no 'names' attribute.")
+                    else:
+                        print(f"  Warning: Could not find 'label' or 'labels' feature for task '{task_name}'.")
+            
+                except Exception as e:
+                    print(f"  Error loading features or building mapping for task '{task_name}': {e}")
+            
+            print(f"Finished building mappings. Found names for tasks: {list(self._task_to_id2label.keys())}")
+            
+            # Load Tokenizer
+            try:
+                self._tokenizer = AutoTokenizer.from_pretrained(self._model_dir)
+                print("Tokenizer loaded.")
+            except Exception as e:
+                raise RuntimeError(f"Error loading tokenizer: {e}")
+            
+            # Initialize Model
+            self._model = LegalMultiTaskModel(self._base_model_name, self._task_labels) 
+            print("Model structure initialized.")
+            
+            # Load Model Weights
+            try:
+                self._model.load_state_dict(torch.load(model_weights_path, map_location=torch.device('cpu')))
+                print("Model weights loaded.")
+            except Exception as e:
+                raise RuntimeError(f"Error loading model weights from {model_weights_path}: {e}")
+            
+            # Setup Device and Eval Mode
+            self._device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            self._model.to(self._device)
+            self._model.eval()
+            print(f"Model moved to {self._device} and set to eval mode.")
+            
+        except Exception as e:
+            print(f"Error during model initialization: {e}")
+            raise
+    
+    def predict(self, text, task_name):
+        """
+        Classifies the input text for the specified task using the loaded multi-task model.
+
+        Args:
+            text (str): The input text to classify.
+            task_name (str): The target task (e.g., "scotus", "ledgar", "unfair_tos"). 
+                             Must match a task the model was trained on.
+
+        Returns:
+            dict: A dictionary containing the prediction results:
+                  {
+                      "task": task_name,
+                      "predicted_label_id": int, 
+                      "predicted_label_name": str, 
+                      "confidence": float 
+                  }
+                  or {"error": str} if the task is not supported or an error occurs.
+        """
+        self._ensure_initialized()
+        
+        if task_name not in self._model.task_classifiers:
+            return {"error": f"Task '{task_name}' is not supported by this model. Supported tasks: {list(self._model.task_classifiers.keys())}"}
+            
+        # Tokenize
+        inputs = self._tokenizer(text, return_tensors="pt", truncation=True, padding=True, max_length=512)
+        input_ids = inputs["input_ids"].to(self._device)
+        attention_mask = inputs["attention_mask"].to(self._device)
+        
+        # Get predictions
+        label_name = "N/A" 
+        pred_class_id = -1
+        confidence_score = 0.0
+
+        with torch.no_grad():
+            logits = self._model(input_ids, attention_mask, task_name)
+            if logits is None or logits.shape[0] != 1: 
+                return {"error": "Model returned unexpected output."}
+
+            probs = torch.softmax(logits, dim=1)
+            confidence_score, pred_class_id_tensor = torch.max(probs, dim=1)
+            pred_class_id = pred_class_id_tensor.item()
+            confidence_score = confidence_score.item()
+
+            if task_name in self._task_to_id2label:
+                label_name = self._task_to_id2label[task_name].get(pred_class_id, f"ID_{pred_class_id}_NotInMap")
             else:
-                 print(f"  Warning: Label feature found for '{task_name}', but it has no 'names' attribute.")
-        else:
-            print(f"  Warning: Could not find 'label' or 'labels' feature for task '{task_name}'.")
+                label_name = f"ID_{pred_class_id}_NoMapForTask"
+                
+        return {
+            "task": task_name,
+            "predicted_label_id": pred_class_id,
+            "predicted_label_name": label_name,
+            "confidence": confidence_score
+        }
+    
+    def get_available_tasks(self):
+        """Get list of available tasks without loading the model."""
+        if not self._initialized:
+            # Try to load just the config to get task labels
+            try:
+                config = load_config()
+                if config:
+                    model_cfg = config.get('model', {}).get('multi_task_classification', {})
+                    model_save_name = model_cfg.get('name', 'multitask_legal_model_standardized')
+                    output_dir_template = config.get('paths', {}).get('output_dir_template', 'models/classification/{model_name}')
+                    model_dir = output_dir_template.format(model_name=model_save_name)
+                    task_labels_path = os.path.join(model_dir, "task_labels.json")
+                    
+                    if os.path.exists(task_labels_path):
+                        with open(task_labels_path, "r") as f:
+                            task_labels = json.load(f)
+                        return list(task_labels.keys())
+            except Exception:
+                pass
+            return []
+        return list(self._task_labels.keys())
+    
+    def is_model_loaded(self):
+        """Check if the model is currently loaded."""
+        return self._initialized
+    
+    def get_model_info(self):
+        """Get information about the loaded model."""
+        if not self._initialized:
+            return {"loaded": False, "message": "Model not loaded"}
+        
+        return {
+            "loaded": True,
+            "model_dir": self._model_dir,
+            "base_model": self._base_model_name,
+            "device": str(self._device),
+            "available_tasks": list(self._task_labels.keys()),
+            "task_labels": self._task_labels
+        }
 
-    except Exception as e:
-        print(f"  Error loading features or building mapping for task '{task_name}': {e}")
+# Global model manager instance
+_model_manager = ModelManager()
 
-print(f"Finished building mappings. Found names for tasks: {list(task_to_id2label.keys())}")
-
-# Load Tokenizer
-try:
-    tokenizer = AutoTokenizer.from_pretrained(model_dir)
-    print("Tokenizer loaded.")
-except Exception as e:
-    print(f"Error loading tokenizer: {e}")
-    exit()
-
-# Initialize Model
-model = LegalMultiTaskModel(BASE_MODEL_NAME, task_num_labels) 
-print("Model structure initialized.")
-
-# Load Model Weights
-try:
-    model.load_state_dict(torch.load(model_weights_path, map_location=torch.device('cpu')))
-    print("Model weights loaded.")
-except Exception as e:
-    print(f"Error loading model weights from {model_weights_path}: {e}")
-    exit()
-
-# Setup Device and Eval Mode
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model.to(device)
-model.eval()
-print(f"Model moved to {device} and set to eval mode.")
-
-# Prediction Function
+# Public API Functions
 def predict(text, task_name):
     """
     Classifies the input text for the specified task using the loaded multi-task model.
-
-    Args:
-        text (str): The input text to classify.
-        task_name (str): The target task (e.g., "scotus", "ledgar", "unfair_tos"). 
-                         Must match a task the model was trained on.
-
-    Returns:
-        dict: A dictionary containing the prediction results:
-              {
-                  "task": task_name,
-                  "predicted_label_id": int, 
-                  "predicted_label_name": str, 
-                  "confidence": float 
-              }
-              or {"error": str} if the task is not supported or an error occurs.
-    """
-    if task_name not in model.task_classifiers:
-         return {"error": f"Task '{task_name}' is not supported by this model. Supported tasks: {list(model.task_classifiers.keys())}"}
-         
-    # Tokenize
-    inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True, max_length=512)
-    input_ids = inputs["input_ids"].to(device)
-    attention_mask = inputs["attention_mask"].to(device)
     
-    # Get predictions
-    label_name = "N/A" 
-    pred_class_id = -1
-    confidence_score = 0.0
+    This is the main public interface for the module.
+    """
+    return _model_manager.predict(text, task_name)
 
-    with torch.no_grad():
-        logits = model(input_ids, attention_mask, task_name)
-        if logits is None or logits.shape[0] != 1: return {"error": "Model returned unexpected output."}
+def get_available_tasks():
+    """Get list of available tasks without loading the model."""
+    return _model_manager.get_available_tasks()
 
-        probs = torch.softmax(logits, dim=1)
-        confidence_score, pred_class_id_tensor = torch.max(probs, dim=1)
-        pred_class_id = pred_class_id_tensor.item()
-        confidence_score = confidence_score.item()
+def is_model_loaded():
+    """Check if the model is currently loaded."""
+    return _model_manager.is_model_loaded()
 
-        if task_name in task_to_id2label:
-            label_name = task_to_id2label[task_name].get(pred_class_id, f"ID_{pred_class_id}_NotInMap")
-        else:
-            label_name = f"ID_{pred_class_id}_NoMapForTask"
-            
-    return {
-        "task": task_name,
-        "predicted_label_id": pred_class_id,
-        "predicted_label_name": label_name,
-        "confidence": confidence_score
-    }
+def get_model_info():
+    """Get information about the loaded model."""
+    return _model_manager.get_model_info()
 
 # Example Usage
 if __name__ == "__main__":
