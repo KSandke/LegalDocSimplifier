@@ -5,7 +5,7 @@ import pandas as pd # Using pandas for easier analysis
 
 STANDARDIZED_DATA_DIR = 'data/standardized'
 # Check labels for the problematic datasets
-DATASET_NAMES = ["casehold", "unfair_tos", "scotus", "ledgar"] 
+DATASET_NAMES = ["unfair_tos", "scotus", "ledgar"] 
 # Also check scotus/ledgar just in case
 
 print("Inspecting labels in standardized datasets...")
@@ -70,8 +70,7 @@ for name in DATASET_NAMES:
                  
              # Check against expected ranges (adjust ranges if needed)
              expected_max = -1
-             if name == "casehold": expected_max = 4
-             elif name == "unfair_tos": expected_max = 7
+             if name == "unfair_tos": expected_max = 7
              elif name == "scotus": expected_max = 12
              elif name == "ledgar": expected_max = 99
              

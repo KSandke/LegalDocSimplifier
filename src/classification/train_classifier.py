@@ -15,7 +15,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
 # Load dataset
-dataset_name = "ledgar"  # Choose from: scotus, ledgar, unfair_tos, casehold
+dataset_name = "ledgar"  # Choose from: scotus, ledgar, unfair_tos
 dataset = load_from_disk(f'data/processed/{dataset_name}_dataset')
 
 # Prepare model and tokenizer
@@ -38,8 +38,6 @@ def preprocess_function(examples):
         texts = examples["text"]
     elif dataset_name == "unfair_tos":
         texts = examples["text"]
-    elif dataset_name == "casehold":
-        texts = examples["text"]  # Adjust as needed
     
     return tokenizer(texts, padding="max_length", truncation=True, max_length=512)
 
