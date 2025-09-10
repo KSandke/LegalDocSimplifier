@@ -151,6 +151,226 @@ class TestSummarizationConfigLoading:
         assert '法律摘要模型' in result['description']
 
 
+class TestAbstractiveSummarizerForwardPass:
+    """Test class for abstractive summarizer model forward pass functionality."""
+    
+    def test_preprocess_function_basic(self):
+        """Test basic preprocessing function with valid inputs."""
+        from summarization.abstractive_summarizer import preprocess_function
+        
+        # Mock tokenizer
+        mock_tokenizer = Mock()
+        mock_tokenizer.name_or_path = "facebook/bart-base"
+        mock_tokenizer.return_value = {
+            'input_ids': [[1, 2, 3, 4, 5]],
+            'attention_mask': [[1, 1, 1, 1, 1]]
+        }
+        mock_tokenizer.side_effect = lambda x, **kwargs: {
+            'input_ids': [[1, 2, 3, 4, 5]],
+            'attention_mask': [[1, 1, 1, 1, 1]]
+        }
+        
+        # Test data
+        examples = {
+            'text': ['This is a test document for summarization.'],
+            'summary': ['Test summary.']
+        }
+        
+        result = preprocess_function(
+            examples, mock_tokenizer, 512, 128, 'text', 'summary'
+        )
+        
+        # Verify result structure
+        assert 'input_ids' in result
+        assert 'attention_mask' in result
+        assert 'labels' in result
+        assert len(result['input_ids']) == 1
+        assert len(result['labels']) == 1
+    
+    def test_preprocess_function_t5_model(self):
+        """Test preprocessing function with T5 model (requires prefix)."""
+        from summarization.abstractive_summarizer import preprocess_function
+        
+        # Mock T5 tokenizer
+        mock_tokenizer = Mock()
+        mock_tokenizer.name_or_path = "t5-small"
+        mock_tokenizer.return_value = {
+            'input_ids': [[1, 2, 3, 4, 5]],
+            'attention_mask': [[1, 1, 1, 1, 1]]
+        }
+        mock_tokenizer.side_effect = lambda x, **kwargs: {
+            'input_ids': [[1, 2, 3, 4, 5]],
+            'attention_mask': [[1, 1, 1, 1, 1]]
+        }
+        
+        # Test data
+        examples = {
+            'text': ['This is a test document for summarization.'],
+            'summary': ['Test summary.']
+        }
+        
+        result = preprocess_function(
+            examples, mock_tokenizer, 512, 128, 'text', 'summary'
+        )
+        
+        # Verify result structure
+        assert 'input_ids' in result
+        assert 'attention_mask' in result
+        assert 'labels' in result
+        assert len(result['input_ids']) == 1
+        assert len(result['labels']) == 1
+    
+    def test_preprocess_function_batch_processing(self):
+        """Test preprocessing function with batch of examples."""
+        from summarization.abstractive_summarizer import preprocess_function
+        
+        # Mock tokenizer
+        mock_tokenizer = Mock()
+        mock_tokenizer.name_or_path = "facebook/bart-base"
+        mock_tokenizer.return_value = {
+            'input_ids': [[1, 2, 3, 4, 5], [6, 7, 8, 9, 10]],
+            'attention_mask': [[1, 1, 1, 1, 1], [1, 1, 1, 1, 1]]
+        }
+        mock_tokenizer.side_effect = lambda x, **kwargs: {
+            'input_ids': [[1, 2, 3, 4, 5], [6, 7, 8, 9, 10]],
+            'attention_mask': [[1, 1, 1, 1, 1], [1, 1, 1, 1, 1]]
+        }
+        
+        # Test data
+        examples = {
+            'text': ['First document for summarization.', 'Second document for summarization.'],
+            'summary': ['First summary.', 'Second summary.']
+        }
+        
+        result = preprocess_function(
+            examples, mock_tokenizer, 512, 128, 'text', 'summary'
+        )
+        
+        # Verify result structure
+        assert 'input_ids' in result
+        assert 'attention_mask' in result
+        assert 'labels' in result
+        assert len(result['input_ids']) == 2
+        assert len(result['labels']) == 2
+
+
+class TestPostProcessSummary:
+    """Test class for post-processing summary functionality."""
+    
+    def test_post_process_summary_basic(self):
+        """Test basic post-processing of summary text."""
+        from summarization.abstractive_summarizer import post_process_summary
+        
+        # Test basic text
+        input_text = "This is a test summary. It has multiple sentences. Each sentence should be processed correctly."
+        result = post_process_summary(input_text)
+        
+        assert isinstance(result, str)
+        assert len(result) > 0
+        assert result.strip() == result  # Should be trimmed
+    
+    def test_post_process_summary_numbered_points(self):
+        """Test post-processing with numbered points."""
+        from summarization.abstractive_summarizer import post_process_summary
+        
+        # Test with numbered points
+        input_text = "1. First point about the case. 2. Second point about the ruling. 3. Third point about the implications."
+        result = post_process_summary(input_text)
+        
+        assert isinstance(result, str)
+        assert "1." in result
+        assert "2." in result
+        assert "3." in result
+    
+    def test_post_process_summary_newline_tags(self):
+        """Test post-processing with newline tags."""
+        from summarization.abstractive_summarizer import post_process_summary
+        
+        # Test with newline tags
+        input_text = "First point<n>Second point<n>Third point"
+        result = post_process_summary(input_text)
+        
+        assert isinstance(result, str)
+        assert "<n>" not in result  # Should be replaced with actual newlines
+        assert "\n" in result
+    
+    def test_post_process_summary_incomplete_sentences(self):
+        """Test post-processing with incomplete sentences."""
+        from summarization.abstractive_summarizer import post_process_summary
+        
+        # Test with incomplete sentence
+        input_text = "This is a complete sentence. This is an incomplete sentence"
+        result = post_process_summary(input_text)
+        
+        assert isinstance(result, str)
+        assert len(result) > 0
+    
+    def test_post_process_summary_empty_text(self):
+        """Test post-processing with empty text."""
+        from summarization.abstractive_summarizer import post_process_summary
+        
+        # Test with empty text
+        result = post_process_summary("")
+        assert isinstance(result, str)
+        assert result.strip() == ""
+
+
+class TestROUGEMetrics:
+    """Test class for ROUGE metrics computation."""
+    
+    def test_compute_metrics_basic(self):
+        """Test basic ROUGE metrics computation."""
+        from summarization.abstractive_summarizer import compute_metrics
+        
+        # Test data
+        decoded_preds = ["This is a test summary.", "Another test summary."]
+        decoded_labels = ["This is a reference summary.", "Another reference summary."]
+        
+        result = compute_metrics(decoded_preds, decoded_labels)
+        
+        # Verify result structure
+        assert isinstance(result, dict)
+        assert 'rouge1' in result
+        assert 'rouge2' in result
+        assert 'rougeL' in result
+        assert 'gen_len' in result
+        
+        # Verify score types
+        assert isinstance(result['rouge1'], (int, float))
+        assert isinstance(result['rouge2'], (int, float))
+        assert isinstance(result['rougeL'], (int, float))
+        assert isinstance(result['gen_len'], (int, float))
+    
+    def test_compute_metrics_empty_inputs(self):
+        """Test ROUGE metrics with empty inputs."""
+        from summarization.abstractive_summarizer import compute_metrics
+        
+        # Test with empty lists
+        result = compute_metrics([], [])
+        
+        assert isinstance(result, dict)
+        assert 'rouge1' in result
+        assert 'rouge2' in result
+        assert 'rougeL' in result
+        assert 'gen_len' in result
+    
+    def test_compute_metrics_different_lengths(self):
+        """Test ROUGE metrics with different prediction and label lengths."""
+        from summarization.abstractive_summarizer import compute_metrics
+        
+        # Test with different lengths
+        decoded_preds = ["Short summary."]
+        decoded_labels = ["This is a much longer reference summary with more details."]
+        
+        result = compute_metrics(decoded_preds, decoded_labels)
+        
+        assert isinstance(result, dict)
+        assert 'rouge1' in result
+        assert 'rouge2' in result
+        assert 'rougeL' in result
+        assert 'gen_len' in result
+
+
 class TestAbstractiveSummarizer:
     """Test class for abstractive summarization functionality."""
     
