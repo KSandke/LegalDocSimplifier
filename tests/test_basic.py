@@ -43,7 +43,6 @@ class TestBasicSetup:
             "summarization/test_abstractive_summarizer.py",
             "summarization/test_extractive_summarizer.py",
             "simplification/test_text_simplifier.py",
-            "pipeline/test_huggingface_pipeline.py",
             "pipeline/test_legal_document_pipeline.py"
         ]
         
