@@ -194,6 +194,10 @@ class TestSimplificationForwardPass:
             'attention_mask': [[1, 1, 1, 1, 1]]
         }
         
+        # Mock context manager for as_target_tokenizer
+        mock_tokenizer.as_target_tokenizer.return_value.__enter__ = Mock(return_value=mock_tokenizer)
+        mock_tokenizer.as_target_tokenizer.return_value.__exit__ = Mock(return_value=None)
+        
         # Test data
         examples = {
             'complex': ['This is a complex legal document that needs simplification.'],
@@ -223,6 +227,10 @@ class TestSimplificationForwardPass:
             'input_ids': [[1, 2, 3, 4, 5], [6, 7, 8, 9, 10]],
             'attention_mask': [[1, 1, 1, 1, 1], [1, 1, 1, 1, 1]]
         }
+        
+        # Mock context manager for as_target_tokenizer
+        mock_tokenizer.as_target_tokenizer.return_value.__enter__ = Mock(return_value=mock_tokenizer)
+        mock_tokenizer.as_target_tokenizer.return_value.__exit__ = Mock(return_value=None)
         
         # Test data
         examples = {
